@@ -83,6 +83,60 @@
   .memory .cell { background: rgba(255,255,255,0.06); border: 2px solid var(--panel-border); border-radius: 12px; display: flex; align-items: center; justify-content: center; font-size: clamp(24px, 4vw, 44px); }
   .memory .cell.shown { background: rgba(255,255,255,0.14); }
   .gameStatus { position: absolute; bottom: 16px; left: 0; right: 0; text-align: center; font-weight: 800; font-size: clamp(16px, 2vw, 26px); color: var(--text-hi); text-shadow: 0 2px 8px rgba(0,0,0,0.6); }
+
+  /* Settings */
+  .settingRow { display: flex; align-items: center; justify-content: space-between; gap: 20px; background: var(--panel); border: 2px solid var(--panel-border); border-radius: 16px; padding: 18px 22px; max-width: 640px; }
+  .settingRow .label { font-weight: 700; font-size: 15px; }
+  .settingRow .desc { color: var(--text-lo); font-size: 13px; margin-top: 4px; max-width: 480px; }
+  .styleChoices { display: flex; gap: 12px; margin-top: 10px; }
+  .styleChoice {
+    background: var(--panel); border: 2px solid var(--panel-border); border-radius: 14px;
+    padding: 14px 20px; font-weight: 800; font-size: 14px; color: var(--text-hi); min-width: 150px; text-align: center;
+  }
+  .styleChoice.selected { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(124,92,255,0.25); }
+  .styleChoice.focused { border-color: var(--focus); box-shadow: 0 0 0 4px rgba(255,210,63,0.25); }
+  #settingsBtn { background: var(--panel); border: 1px solid var(--panel-border); color: var(--text-hi); border-radius: 999px; width: 44px; height: 44px; display: flex; align-items: center; justify-content: center; font-size: 20px; }
+  #settingsBtn.focused { border-color: var(--focus); box-shadow: 0 0 0 3px rgba(255,210,63,0.25); }
+
+  /* ---------- Polycade-style UI (cabinet marquee look) ---------- */
+  body.theme-polycade {
+    --bg: #000000;
+    --panel: #131313;
+    --panel-border: #2c2c2c;
+    --accent: #ff7a1a;
+    --accent2: #ff3d3d;
+    --focus: #ff7a1a;
+    background: #000;
+  }
+  body.theme-polycade .marquee {
+    display: block; text-align: center; font-weight: 900; text-transform: uppercase;
+    letter-spacing: 0.12em; font-size: clamp(20px, 3vw, 40px);
+    background: linear-gradient(90deg, var(--accent2), var(--accent));
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+    text-shadow: none; margin-bottom: clamp(14px, 2vw, 26px);
+    animation: polycadeFlicker 3.2s ease-in-out infinite;
+  }
+  @keyframes polycadeFlicker {
+    0%, 96%, 100% { opacity: 1; }
+    97% { opacity: 0.72; }
+    98% { opacity: 1; }
+  }
+  body.theme-polycade .grid { grid-template-columns: repeat(auto-fill, minmax(clamp(140px, 13vw, 200px), 1fr)); }
+  body.theme-polycade .tile {
+    aspect-ratio: 0.7; border-radius: 8px; border-width: 3px; background: linear-gradient(180deg, #1a1a1a, #0a0a0a);
+    justify-content: flex-end; padding-bottom: 16px; position: relative; overflow: hidden;
+  }
+  body.theme-polycade .tile::before {
+    content: ''; position: absolute; inset: 0; background: radial-gradient(circle at 50% 30%, rgba(255,122,26,0.14), transparent 70%);
+  }
+  body.theme-polycade .tile .emoji { font-size: clamp(48px, 6vw, 84px); filter: drop-shadow(0 6px 14px rgba(0,0,0,0.6)); }
+  body.theme-polycade .tile .name { text-transform: uppercase; letter-spacing: 0.04em; font-weight: 900; }
+  body.theme-polycade .tile.focused {
+    border-color: var(--accent); transform: scale(1.08);
+    box-shadow: 0 0 0 3px rgba(255,122,26,0.35), 0 0 26px rgba(255,122,26,0.55), 0 16px 34px rgba(0,0,0,0.7);
+  }
+  body.theme-polycade .section-title { color: var(--accent); text-transform: uppercase; }
+  body.theme-polycade .logo .inf { filter: drop-shadow(0 0 10px rgba(255,122,26,0.7)); }
 </style>
 </head>
 <body>
@@ -92,8 +146,13 @@
   <section class="screen active" id="homeScreen">
     <header>
       <div class="logo"><span class="inf">♾️</span> INFINITY ARCADE <span style="font-size: 0.5em; color: var(--text-lo); font-weight: 600;">TV</span></div>
-      <div id="controllerStatus"><span class="dot"></span><span id="controllerLabel">No controller — pair one in your TV's Bluetooth settings</span></div>
+      <div style="display: flex; align-items: center; gap: 12px;">
+        <div id="controllerStatus"><span class="dot"></span><span id="controllerLabel">No controller — pair one in your TV's Bluetooth settings</span></div>
+        <button id="settingsBtn" title="Settings">⚙️</button>
+      </div>
     </header>
+
+    <div class="marquee" id="marquee" hidden></div>
 
     <div class="section-title">BUILT-IN GAMES</div>
     <div class="grid" id="builtinGrid"></div>
@@ -128,6 +187,26 @@
     </div>
   </section>
 
+  <!-- SETTINGS -->
+  <section class="screen" id="settingsScreen">
+    <header>
+      <div class="logo"><span class="inf">⚙️</span> SETTINGS</div>
+    </header>
+    <div class="settingRow" style="flex-direction: column; align-items: flex-start;">
+      <div>
+        <div class="label">UI Style</div>
+        <div class="desc">Classic is the default Infinity Arcade look. Polycade mirrors the black-cabinet, poster-art, glowing-marquee style of Polycade's own arcade cabinet software.</div>
+      </div>
+      <div class="styleChoices" id="styleChoices">
+        <button class="styleChoice" data-style="classic">Classic</button>
+        <button class="styleChoice" data-style="polycade">Polycade</button>
+      </div>
+    </div>
+    <div class="btnRow" style="margin-top: 24px;">
+      <button class="backBtn" id="settingsBackBtn">← Back</button>
+    </div>
+  </section>
+
   <!-- PLAYER -->
   <section class="screen" id="playerScreen">
     <div id="playerHeader">
@@ -146,16 +225,36 @@
   // ---------- Storage ----------
   var STORE_KEY = 'infinityArcadeTV.v1';
   function loadStore() {
-    try { return JSON.parse(localStorage.getItem(STORE_KEY)) || { customGames: [], scores: {} }; }
-    catch (e) { return { customGames: [], scores: {} }; }
+    try {
+      var s = JSON.parse(localStorage.getItem(STORE_KEY)) || {};
+      s.customGames = s.customGames || [];
+      s.scores = s.scores || {};
+      s.uiStyle = s.uiStyle === 'polycade' ? 'polycade' : 'classic';
+      return s;
+    }
+    catch (e) { return { customGames: [], scores: {}, uiStyle: 'classic' }; }
   }
   function saveStore(s) { localStorage.setItem(STORE_KEY, JSON.stringify(s)); }
   var store = loadStore();
+
+  // ---------- UI style (Classic / Polycade) ----------
+  function applyUiStyle() {
+    document.body.classList.toggle('theme-polycade', store.uiStyle === 'polycade');
+  }
+  applyUiStyle();
+
+  var marquee = document.getElementById('marquee');
+  function setMarquee(text) {
+    if (store.uiStyle !== 'polycade' || !text) { marquee.hidden = true; marquee.textContent = ''; return; }
+    marquee.hidden = false;
+    marquee.textContent = text;
+  }
 
   // ---------- Screen management ----------
   var screens = {
     home: document.getElementById('homeScreen'),
     add: document.getElementById('addScreen'),
+    settings: document.getElementById('settingsScreen'),
     player: document.getElementById('playerScreen'),
   };
   var currentScreen = 'home';
@@ -175,8 +274,13 @@
   }
   function updateFocusVisual() {
     focusables.forEach(function (el, i) { el.classList.toggle('focused', i === focusIndex); });
-    if (focusables[focusIndex]) {
-      focusables[focusIndex].scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    var current = focusables[focusIndex];
+    if (current) {
+      current.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+      var nameEl = current.querySelector && current.querySelector('.name');
+      setMarquee(nameEl ? nameEl.textContent : null);
+    } else {
+      setMarquee(null);
     }
   }
   function moveFocus(dir) {
@@ -237,7 +341,7 @@
     var addTile = renderTile(customGrid, { emoji: '➕', name: 'ADD GAME', sub: 'Paste a URL', onSelect: openAddScreen });
     tiles.push(addTile);
 
-    setFocusList(tiles);
+    setFocusList([document.getElementById('settingsBtn')].concat(tiles));
   }
 
   function openAddScreen() {
@@ -246,6 +350,27 @@
     showScreen('add');
     setFocusList([document.getElementById('nameInput'), document.getElementById('urlInput'), document.getElementById('saveGameBtn'), document.getElementById('cancelAddBtn')]);
   }
+
+  // ---------- Settings ----------
+  var styleChoiceEls = Array.prototype.slice.call(document.querySelectorAll('.styleChoice'));
+  function renderStyleChoices() {
+    styleChoiceEls.forEach(function (btn) { btn.classList.toggle('selected', btn.getAttribute('data-style') === store.uiStyle); });
+  }
+  styleChoiceEls.forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      store.uiStyle = btn.getAttribute('data-style');
+      saveStore(store);
+      applyUiStyle();
+      renderStyleChoices();
+    });
+  });
+  function openSettingsScreen() {
+    renderStyleChoices();
+    showScreen('settings');
+    setFocusList(styleChoiceEls.concat([document.getElementById('settingsBackBtn')]));
+  }
+  document.getElementById('settingsBtn').addEventListener('click', openSettingsScreen);
+  document.getElementById('settingsBackBtn').addEventListener('click', function () { showScreen('home'); renderHome(); });
 
   document.getElementById('cancelAddBtn').addEventListener('click', function () { showScreen('home'); renderHome(); });
   document.getElementById('saveGameBtn').addEventListener('click', function () {
@@ -483,7 +608,7 @@
       case 'Escape':
       case 'Backspace':
         if (currentScreen === 'player') exitGame();
-        else if (currentScreen === 'add') { showScreen('home'); renderHome(); }
+        else if (currentScreen === 'add' || currentScreen === 'settings') { showScreen('home'); renderHome(); }
         break;
     }
   });
@@ -548,7 +673,7 @@
         if (a && !gpState.a) activateFocused();
         if (back && !gpState.back) {
           if (currentScreen === 'player') exitGame();
-          else if (currentScreen === 'add') { showScreen('home'); renderHome(); }
+          else if (currentScreen === 'add' || currentScreen === 'settings') { showScreen('home'); renderHome(); }
         }
         gpState.a = a; gpState.back = back;
       }
