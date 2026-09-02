@@ -56,9 +56,27 @@
   #playerScreen { padding: 0; background: #000; }
   #playerHeader { display: flex; justify-content: space-between; align-items: center; padding: 14px 24px; background: rgba(0,0,0,0.55); z-index: 2; }
   #playerHeader .title { font-weight: 700; }
-  #gameHost { flex: 1; position: relative; display: flex; align-items: center; justify-content: center; }
+  #gameHost { flex: 1; position: relative; display: flex; align-items: center; justify-content: center; overflow: hidden; }
   #gameHost canvas, #gameHost .cart { width: min(90vh, 92vw); height: min(90vh, 92vw); max-width: 900px; max-height: 900px; }
   iframe.gameFrame { width: 100%; height: 100%; border: none; background: white; }
+
+  /* Ambient side-fill "bezel" art, Polycade-style: when the game doesn't
+     fill the screen, its own icon is blown up, blurred and mirrored behind
+     it instead of leaving flat black bars either side. */
+  #gameBackdrop {
+    position: absolute; inset: 0; z-index: 0; display: flex; align-items: center; justify-content: center;
+    overflow: hidden; pointer-events: none;
+  }
+  #gameBackdrop .bg-emoji {
+    font-size: min(140vh, 140vw); line-height: 1; filter: blur(46px) saturate(1.3) brightness(0.55);
+    transform: scale(1.4); opacity: 0.9;
+  }
+  #gameBackdrop::after {
+    content: ''; position: absolute; inset: 0;
+    background: radial-gradient(circle at 50% 50%, transparent 0%, transparent 40%, #000 92%);
+  }
+  #gameHost > *:not(#gameBackdrop) { position: relative; z-index: 1; }
+  body.theme-polycade #gameBackdrop .bg-emoji { filter: blur(50px) saturate(1.6) brightness(0.45) hue-rotate(-6deg); }
 
   .backBtn { background: var(--panel); border: 1px solid var(--panel-border); color: var(--text-hi); border-radius: 12px; padding: 10px 20px; font-size: 15px; font-weight: 700; }
   .backBtn.focused { border-color: var(--focus); box-shadow: 0 0 0 3px rgba(255,210,63,0.25); }
@@ -395,6 +413,19 @@
     if (prev == null || score > prev) { store.scores[gameId] = score; saveStore(store); }
   }
 
+  // Fills space around a game that doesn't cover the whole screen with a
+  // big blurred version of its own icon, instead of leaving black bars —
+  // same idea as Polycade's cabinet bezel art, synthesized from the icon
+  // we already have rather than a screenshot we'd have no legitimate way
+  // to capture from a sandboxed cross-origin game iframe.
+  function setGameBackdrop(emoji) {
+    gameHost.innerHTML = '';
+    var backdrop = document.createElement('div');
+    backdrop.id = 'gameBackdrop';
+    backdrop.innerHTML = '<span class="bg-emoji">' + emoji + '</span>';
+    gameHost.appendChild(backdrop);
+  }
+
   function exitGame() {
     if (activeCleanup) { try { activeCleanup(); } catch (e) {} }
     activeCleanup = null;
@@ -407,7 +438,7 @@
   function launchCustom(g) {
     activeGameId = g.id;
     playerTitle.textContent = g.name;
-    gameHost.innerHTML = '';
+    setGameBackdrop('🕹️');
     var iframe = document.createElement('iframe');
     iframe.className = 'gameFrame';
     iframe.src = g.url;
@@ -421,7 +452,8 @@
   function launchBuiltin(id, name) {
     activeGameId = id;
     playerTitle.textContent = name;
-    gameHost.innerHTML = '';
+    var def = BUILTIN_GAMES.filter(function (g) { return g.id === id; })[0];
+    setGameBackdrop(def ? def.emoji : '🕹️');
     showScreen('player');
     if (id === 'ttt') activeCleanup = mountTicTacToe(gameHost);
     if (id === 'memory') activeCleanup = mountMemory(gameHost);
