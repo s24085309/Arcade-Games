@@ -1,0 +1,572 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>Infinity Arcade — TV</title>
+<style>
+  :root {
+    --bg: #0b0715;
+    --panel: rgba(255,255,255,0.06);
+    --panel-border: rgba(255,255,255,0.12);
+    --accent: #7c5cff;
+    --accent2: #ff5c8a;
+    --text-hi: #f5f3ff;
+    --text-lo: #9d94b8;
+    --focus: #ffd23f;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0; width: 100%; height: 100%;
+    background: radial-gradient(circle at 50% 0%, #1c1230, var(--bg) 60%);
+    color: var(--text-hi);
+    font-family: 'Segoe UI', system-ui, sans-serif;
+    overflow: hidden;
+    user-select: none;
+  }
+  #app { position: relative; width: 100vw; height: 100vh; }
+  .screen { position: absolute; inset: 0; display: none; flex-direction: column; padding: clamp(20px, 4vw, 56px); }
+  .screen.active { display: flex; }
+
+  header { display: flex; align-items: center; justify-content: space-between; margin-bottom: clamp(20px, 3vw, 40px); }
+  .logo { display: flex; align-items: center; gap: 16px; font-size: clamp(22px, 2.6vw, 34px); font-weight: 800; }
+  .logo .inf { font-size: clamp(28px, 3.2vw, 42px); }
+  #controllerStatus { display: flex; align-items: center; gap: 10px; font-size: clamp(13px, 1.2vw, 17px); color: var(--text-lo); background: var(--panel); border: 1px solid var(--panel-border); border-radius: 999px; padding: 8px 18px; }
+  #controllerStatus.connected { color: #4ade80; border-color: #4ade8055; }
+  .dot { width: 9px; height: 9px; border-radius: 50%; background: #666; }
+  #controllerStatus.connected .dot { background: #4ade80; box-shadow: 0 0 8px #4ade80; }
+
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(clamp(160px, 16vw, 240px), 1fr)); gap: clamp(16px, 2vw, 28px); }
+  .tile {
+    background: var(--panel); border: 2px solid var(--panel-border); border-radius: 20px;
+    aspect-ratio: 1.15; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px;
+    transition: transform 120ms ease, border-color 120ms ease, box-shadow 120ms ease;
+  }
+  .tile .emoji { font-size: clamp(36px, 4.5vw, 64px); }
+  .tile .name { font-size: clamp(14px, 1.4vw, 20px); font-weight: 700; text-align: center; padding: 0 10px; }
+  .tile .sub { font-size: clamp(11px, 1vw, 14px); color: var(--text-lo); }
+  .tile.focused { border-color: var(--focus); transform: scale(1.06); box-shadow: 0 0 0 4px rgba(255,210,63,0.25), 0 12px 32px rgba(0,0,0,0.5); }
+
+  .section-title { font-size: clamp(14px, 1.3vw, 18px); font-weight: 800; color: var(--text-lo); letter-spacing: 0.06em; margin: clamp(20px, 2.4vw, 34px) 0 clamp(10px, 1.2vw, 16px); }
+
+  footer.hints { margin-top: auto; display: flex; gap: clamp(16px, 2vw, 32px); color: var(--text-lo); font-size: clamp(12px, 1.1vw, 16px); flex-wrap: wrap; }
+  footer.hints span b { color: var(--text-hi); }
+
+  /* Player area */
+  #playerScreen { padding: 0; background: #000; }
+  #playerHeader { display: flex; justify-content: space-between; align-items: center; padding: 14px 24px; background: rgba(0,0,0,0.55); z-index: 2; }
+  #playerHeader .title { font-weight: 700; }
+  #gameHost { flex: 1; position: relative; display: flex; align-items: center; justify-content: center; }
+  #gameHost canvas, #gameHost .cart { width: min(90vh, 92vw); height: min(90vh, 92vw); max-width: 900px; max-height: 900px; }
+  iframe.gameFrame { width: 100%; height: 100%; border: none; background: white; }
+
+  .backBtn { background: var(--panel); border: 1px solid var(--panel-border); color: var(--text-hi); border-radius: 12px; padding: 10px 20px; font-size: 15px; font-weight: 700; }
+  .backBtn.focused { border-color: var(--focus); box-shadow: 0 0 0 3px rgba(255,210,63,0.25); }
+
+  /* Add-game screen */
+  .field { display: flex; flex-direction: column; gap: 8px; margin-bottom: 20px; max-width: 640px; }
+  .field label { color: var(--text-lo); font-size: 14px; font-weight: 700; }
+  .field input { min-height: 52px; border-radius: 12px; border: 2px solid var(--panel-border); background: rgba(0,0,0,0.3); color: var(--text-hi); padding: 0 16px; font-size: 18px; }
+  .field input.focused { border-color: var(--focus); }
+  .btnRow { display: flex; gap: 14px; }
+  .primaryBtn { background: linear-gradient(135deg, var(--accent), var(--accent2)); border: none; color: white; font-weight: 800; border-radius: 12px; padding: 14px 28px; font-size: 16px; }
+  .primaryBtn.focused { box-shadow: 0 0 0 4px rgba(255,210,63,0.35); }
+  .note { color: var(--text-lo); font-size: 14px; max-width: 640px; line-height: 1.5; }
+
+  /* generic tic-tac-toe / memory / whack styling */
+  .ttt { display: grid; grid-template-columns: repeat(3,1fr); gap: 10px; width: 100%; height: 100%; }
+  .ttt .cell, .whack .cell { background: rgba(255,255,255,0.06); border: 2px solid var(--panel-border); border-radius: 16px; display: flex; align-items: center; justify-content: center; font-size: clamp(40px, 8vw, 90px); font-weight: 900; }
+  .ttt .cell.focused, .whack .cell.focused, .memory .cell.focused { border-color: var(--focus); box-shadow: 0 0 0 4px rgba(255,210,63,0.25); }
+  .whack { display: grid; grid-template-columns: repeat(3,1fr); gap: 10px; width: 100%; height: 100%; }
+  .whack .cell { font-size: clamp(30px, 6vw, 60px); }
+  .memory { display: grid; grid-template-columns: repeat(4,1fr); gap: 10px; width: 100%; height: 100%; }
+  .memory .cell { background: rgba(255,255,255,0.06); border: 2px solid var(--panel-border); border-radius: 12px; display: flex; align-items: center; justify-content: center; font-size: clamp(24px, 4vw, 44px); }
+  .memory .cell.shown { background: rgba(255,255,255,0.14); }
+  .gameStatus { position: absolute; bottom: 16px; left: 0; right: 0; text-align: center; font-weight: 800; font-size: clamp(16px, 2vw, 26px); color: var(--text-hi); text-shadow: 0 2px 8px rgba(0,0,0,0.6); }
+</style>
+</head>
+<body>
+<div id="app">
+
+  <!-- HOME -->
+  <section class="screen active" id="homeScreen">
+    <header>
+      <div class="logo"><span class="inf">♾️</span> INFINITY ARCADE <span style="font-size: 0.5em; color: var(--text-lo); font-weight: 600;">TV</span></div>
+      <div id="controllerStatus"><span class="dot"></span><span id="controllerLabel">No controller — pair one in your TV's Bluetooth settings</span></div>
+    </header>
+
+    <div class="section-title">BUILT-IN GAMES</div>
+    <div class="grid" id="builtinGrid"></div>
+
+    <div class="section-title">YOUR GAMES</div>
+    <div class="grid" id="customGrid"></div>
+
+    <footer class="hints">
+      <span><b>Arrows / D-Pad</b> Move</span>
+      <span><b>Enter / A</b> Select</span>
+      <span><b>Esc / B</b> Back</span>
+    </footer>
+  </section>
+
+  <!-- ADD GAME -->
+  <section class="screen" id="addScreen">
+    <header>
+      <div class="logo"><span class="inf">📦</span> ADD A GAME</div>
+    </header>
+    <p class="note">Paste the URL of a self-contained HTML5 game (a page that runs entirely from one link, with no login or external file needed). It will be added to "Your Games" on this TV and saved locally. Games that need a native app, a console emulator, or a downloaded ROM can't run inside a browser and won't work here — Infinity Arcade won't pretend otherwise.</p>
+    <div class="field">
+      <label for="nameInput">Name</label>
+      <input id="nameInput" type="text" placeholder="e.g. Neon Racer" />
+    </div>
+    <div class="field">
+      <label for="urlInput">Game URL</label>
+      <input id="urlInput" type="text" placeholder="https://…" />
+    </div>
+    <div class="btnRow">
+      <button class="primaryBtn" id="saveGameBtn">Save Game</button>
+      <button class="backBtn" id="cancelAddBtn">Cancel</button>
+    </div>
+  </section>
+
+  <!-- PLAYER -->
+  <section class="screen" id="playerScreen">
+    <div id="playerHeader">
+      <span class="title" id="playerTitle">Game</span>
+      <button class="backBtn focused" id="exitBtn">✕ Exit</button>
+    </div>
+    <div id="gameHost"></div>
+  </section>
+
+</div>
+
+<script>
+(function () {
+  'use strict';
+
+  // ---------- Storage ----------
+  var STORE_KEY = 'infinityArcadeTV.v1';
+  function loadStore() {
+    try { return JSON.parse(localStorage.getItem(STORE_KEY)) || { customGames: [], scores: {} }; }
+    catch (e) { return { customGames: [], scores: {} }; }
+  }
+  function saveStore(s) { localStorage.setItem(STORE_KEY, JSON.stringify(s)); }
+  var store = loadStore();
+
+  // ---------- Screen management ----------
+  var screens = {
+    home: document.getElementById('homeScreen'),
+    add: document.getElementById('addScreen'),
+    player: document.getElementById('playerScreen'),
+  };
+  var currentScreen = 'home';
+  function showScreen(name) {
+    Object.keys(screens).forEach(function (k) { screens[k].classList.toggle('active', k === name); });
+    currentScreen = name;
+  }
+
+  // ---------- Focus-based navigation (works with keyboard, TV remote as keyboard, and gamepad) ----------
+  var focusables = []; // populated per-screen
+  var focusIndex = 0;
+
+  function setFocusList(list) {
+    focusables = list.filter(Boolean);
+    focusIndex = 0;
+    updateFocusVisual();
+  }
+  function updateFocusVisual() {
+    focusables.forEach(function (el, i) { el.classList.toggle('focused', i === focusIndex); });
+    if (focusables[focusIndex]) {
+      focusables[focusIndex].scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    }
+  }
+  function moveFocus(dir) {
+    if (!focusables.length) return;
+    if (dir === 'next') focusIndex = (focusIndex + 1) % focusables.length;
+    if (dir === 'prev') focusIndex = (focusIndex - 1 + focusables.length) % focusables.length;
+    if (dir === 'down' || dir === 'up') {
+      // approximate grid movement by column count of the closest ancestor grid
+      var el = focusables[focusIndex];
+      var grid = el.closest('.grid');
+      var cols = grid ? Math.max(1, Math.round(grid.clientWidth / el.offsetWidth)) : 1;
+      var next = dir === 'down' ? focusIndex + cols : focusIndex - cols;
+      if (next >= 0 && next < focusables.length) focusIndex = next;
+    }
+    updateFocusVisual();
+  }
+  function activateFocused() {
+    var el = focusables[focusIndex];
+    if (el) el.click();
+  }
+
+  // ---------- Home screen tiles ----------
+  var BUILTIN_GAMES = [
+    { id: 'ttt', emoji: '❌', name: 'Tic-Tac-Toe', sub: '1 Player · vs CPU' },
+    { id: 'memory', emoji: '🧩', name: 'Memory Match', sub: '1 Player' },
+    { id: 'whack', emoji: '🔨', name: 'Whack-a-Mole', sub: '1 Player' },
+  ];
+
+  var builtinGrid = document.getElementById('builtinGrid');
+  var customGrid = document.getElementById('customGrid');
+
+  function renderTile(container, opts) {
+    var tile = document.createElement('button');
+    tile.className = 'tile';
+    tile.innerHTML = '<div class="emoji">' + opts.emoji + '</div><div class="name">' + opts.name + '</div><div class="sub">' + (opts.sub || '') + '</div>';
+    tile.addEventListener('click', opts.onSelect);
+    container.appendChild(tile);
+    return tile;
+  }
+
+  function renderHome() {
+    builtinGrid.innerHTML = '';
+    customGrid.innerHTML = '';
+    var tiles = [];
+
+    BUILTIN_GAMES.forEach(function (g) {
+      var best = store.scores[g.id];
+      var sub = g.sub + (best != null ? ' · 🏆 ' + best : '');
+      tiles.push(renderTile(builtinGrid, { emoji: g.emoji, name: g.name, sub: sub, onSelect: function () { launchBuiltin(g.id, g.name); } }));
+    });
+
+    store.customGames.forEach(function (g, i) {
+      var best = store.scores[g.id];
+      var sub = 'Your Game' + (best != null ? ' · 🏆 ' + best : '');
+      tiles.push(renderTile(customGrid, { emoji: '🕹️', name: g.name, sub: sub, onSelect: function () { launchCustom(g); } }));
+    });
+
+    var addTile = renderTile(customGrid, { emoji: '➕', name: 'ADD GAME', sub: 'Paste a URL', onSelect: openAddScreen });
+    tiles.push(addTile);
+
+    setFocusList(tiles);
+  }
+
+  function openAddScreen() {
+    document.getElementById('nameInput').value = '';
+    document.getElementById('urlInput').value = '';
+    showScreen('add');
+    setFocusList([document.getElementById('nameInput'), document.getElementById('urlInput'), document.getElementById('saveGameBtn'), document.getElementById('cancelAddBtn')]);
+  }
+
+  document.getElementById('cancelAddBtn').addEventListener('click', function () { showScreen('home'); renderHome(); });
+  document.getElementById('saveGameBtn').addEventListener('click', function () {
+    var name = document.getElementById('nameInput').value.trim();
+    var url = document.getElementById('urlInput').value.trim();
+    if (!name || !/^https?:\/\//i.test(url)) { return; }
+    store.customGames.push({ id: 'custom-' + Date.now(), name: name, url: url });
+    saveStore(store);
+    showScreen('home');
+    renderHome();
+  });
+
+  // ---------- Player / launcher ----------
+  var gameHost = document.getElementById('gameHost');
+  var playerTitle = document.getElementById('playerTitle');
+  var activeCleanup = null;
+  var activeGameId = null;
+
+  function recordScore(gameId, score) {
+    if (score == null) return;
+    var prev = store.scores[gameId];
+    if (prev == null || score > prev) { store.scores[gameId] = score; saveStore(store); }
+  }
+
+  function exitGame() {
+    if (activeCleanup) { try { activeCleanup(); } catch (e) {} }
+    activeCleanup = null;
+    gameHost.innerHTML = '';
+    showScreen('home');
+    renderHome();
+  }
+  document.getElementById('exitBtn').addEventListener('click', exitGame);
+
+  function launchCustom(g) {
+    activeGameId = g.id;
+    playerTitle.textContent = g.name;
+    gameHost.innerHTML = '';
+    var iframe = document.createElement('iframe');
+    iframe.className = 'gameFrame';
+    iframe.src = g.url;
+    iframe.setAttribute('allow', 'gamepad; fullscreen');
+    gameHost.appendChild(iframe);
+    showScreen('player');
+    setFocusList([document.getElementById('exitBtn')]);
+    activeCleanup = null;
+  }
+
+  function launchBuiltin(id, name) {
+    activeGameId = id;
+    playerTitle.textContent = name;
+    gameHost.innerHTML = '';
+    showScreen('player');
+    if (id === 'ttt') activeCleanup = mountTicTacToe(gameHost);
+    if (id === 'memory') activeCleanup = mountMemory(gameHost);
+    if (id === 'whack') activeCleanup = mountWhack(gameHost);
+  }
+
+  // ---------- Tic-Tac-Toe ----------
+  function mountTicTacToe(host) {
+    var board = new Array(9).fill(null);
+    var turn = 'X';
+    var wins = 0;
+    var wrap = document.createElement('div');
+    wrap.style.cssText = 'position:relative;width:min(90vh,92vw);height:min(90vh,92vw);max-width:900px;max-height:900px;';
+    var grid = document.createElement('div');
+    grid.className = 'ttt';
+    var status = document.createElement('div');
+    status.className = 'gameStatus';
+    wrap.appendChild(grid); wrap.appendChild(status);
+    host.appendChild(wrap);
+
+    var cells = [];
+    for (var i = 0; i < 9; i++) {
+      (function (idx) {
+        var cell = document.createElement('button');
+        cell.className = 'cell';
+        cell.addEventListener('click', function () { play(idx); });
+        grid.appendChild(cell);
+        cells.push(cell);
+      })(i);
+    }
+
+    function winnerOf(b) {
+      var lines = [[0,1,2],[3,4,5],[6,7,8],[0,3,6],[1,4,7],[2,5,8],[0,4,8],[2,4,6]];
+      for (var i = 0; i < lines.length; i++) {
+        var l = lines[i];
+        if (b[l[0]] && b[l[0]] === b[l[1]] && b[l[0]] === b[l[2]]) return b[l[0]];
+      }
+      return null;
+    }
+    function bestMove(b) {
+      var empty = []; for (var i = 0; i < 9; i++) if (!b[i]) empty.push(i);
+      for (var i = 0; i < empty.length; i++) { var c = b.slice(); c[empty[i]] = 'O'; if (winnerOf(c) === 'O') return empty[i]; }
+      for (var i = 0; i < empty.length; i++) { var c = b.slice(); c[empty[i]] = 'X'; if (winnerOf(c) === 'X') return empty[i]; }
+      if (!b[4]) return 4;
+      return empty[Math.floor(Math.random() * empty.length)];
+    }
+    function render() {
+      var w = winnerOf(board);
+      var full = board.every(function (v) { return v; });
+      cells.forEach(function (c, i) { c.textContent = board[i] || ''; c.style.color = board[i] === 'X' ? '#7c5cff' : '#ff5c8a'; });
+      if (w) status.textContent = (w === 'X' ? 'You win! 🎉 (' + wins + ' wins)' : 'CPU wins!');
+      else if (full) status.textContent = "It's a draw!";
+      else status.textContent = 'Turn: ' + (turn === 'X' ? 'You' : 'CPU');
+      setFocusList(cells);
+    }
+    function play(i) {
+      if (board[i] || winnerOf(board) || turn !== 'X') return;
+      board[i] = 'X'; turn = 'O'; render();
+      if (winnerOf(board) === 'X') { wins++; recordScore('ttt', wins); render(); return; }
+      if (board.every(function (v) { return v; })) return;
+      setTimeout(function () {
+        var m = bestMove(board);
+        board[m] = 'O'; turn = 'X'; render();
+      }, 400);
+    }
+    render();
+    return function cleanup() {};
+  }
+
+  // ---------- Memory Match ----------
+  function mountMemory(host) {
+    var emojis = ['🐶','🐱','🐸','🦊','🐼','🐵','🐷','🐰'];
+    var deck = emojis.concat(emojis);
+    for (var i = deck.length - 1; i > 0; i--) { var j = Math.floor(Math.random() * (i + 1)); var t = deck[i]; deck[i] = deck[j]; deck[j] = t; }
+    var flipped = []; var matched = {}; var moves = 0; var busy = false;
+
+    var wrap = document.createElement('div');
+    wrap.style.cssText = 'position:relative;width:min(90vh,92vw);height:min(90vh,92vw);max-width:900px;max-height:900px;';
+    var grid = document.createElement('div'); grid.className = 'memory';
+    var status = document.createElement('div'); status.className = 'gameStatus';
+    wrap.appendChild(grid); wrap.appendChild(status);
+    host.appendChild(wrap);
+
+    var cells = [];
+    deck.forEach(function (emoji, idx) {
+      var cell = document.createElement('button');
+      cell.className = 'cell';
+      cell.addEventListener('click', function () { flip(idx); });
+      grid.appendChild(cell);
+      cells.push(cell);
+    });
+
+    function render() {
+      cells.forEach(function (cell, i) {
+        var shown = flipped.indexOf(i) !== -1 || matched[i];
+        cell.textContent = shown ? deck[i] : '';
+        cell.classList.toggle('shown', !!shown);
+      });
+      var won = Object.keys(matched).length === deck.length;
+      status.textContent = won ? ('Solved in ' + moves + ' moves! 🎉') : ('Moves: ' + moves);
+      if (won) recordScore('memory', Math.max(1, 1000 - moves * 20));
+      setFocusList(cells);
+    }
+    function flip(i) {
+      if (busy || matched[i] || flipped.indexOf(i) !== -1 || flipped.length === 2) return;
+      flipped.push(i); render();
+      if (flipped.length === 2) {
+        moves++; busy = true;
+        var a = flipped[0], b = flipped[1];
+        if (deck[a] === deck[b]) {
+          setTimeout(function () { matched[a] = true; matched[b] = true; flipped = []; busy = false; render(); }, 350);
+        } else {
+          setTimeout(function () { flipped = []; busy = false; render(); }, 700);
+        }
+      }
+    }
+    render();
+    return function cleanup() {};
+  }
+
+  // ---------- Whack-a-Mole ----------
+  function mountWhack(host) {
+    var active = -1, score = 0, timeLeft = 20, running = false, moveTimer = null, tickTimer = null;
+    var wrap = document.createElement('div');
+    wrap.style.cssText = 'position:relative;width:min(90vh,92vw);height:min(90vh,92vw);max-width:900px;max-height:900px;';
+    var grid = document.createElement('div'); grid.className = 'whack';
+    var status = document.createElement('div'); status.className = 'gameStatus';
+    wrap.appendChild(grid); wrap.appendChild(status);
+    host.appendChild(wrap);
+
+    var cells = [];
+    for (var i = 0; i < 9; i++) {
+      (function (idx) {
+        var cell = document.createElement('button');
+        cell.className = 'cell';
+        cell.addEventListener('click', function () { whack(idx); });
+        grid.appendChild(cell);
+        cells.push(cell);
+      })(i);
+    }
+    var startBtn = document.createElement('button');
+    startBtn.className = 'backBtn';
+    startBtn.style.cssText = 'position:absolute;bottom:56px;left:50%;transform:translateX(-50%);';
+    startBtn.textContent = 'Start';
+    startBtn.addEventListener('click', start);
+    wrap.appendChild(startBtn);
+
+    function render() {
+      cells.forEach(function (c, i) { c.textContent = i === active ? '🐹' : ''; });
+      status.textContent = running ? ('Score: ' + score + ' · ' + timeLeft + 's') : (score > 0 ? ('Final score: ' + score) : 'Press Start');
+      setFocusList(running ? cells : cells.concat([startBtn]));
+    }
+    function start() {
+      score = 0; timeLeft = 20; running = true; active = Math.floor(Math.random() * 9);
+      render();
+      moveTimer = setInterval(function () { active = Math.floor(Math.random() * 9); render(); }, 700);
+      tickTimer = setInterval(function () {
+        timeLeft--;
+        if (timeLeft <= 0) { running = false; active = -1; clearInterval(moveTimer); clearInterval(tickTimer); recordScore('whack', score); }
+        render();
+      }, 1000);
+    }
+    function whack(i) {
+      if (!running || i !== active) return;
+      score++; active = -1; render();
+    }
+    render();
+    return function cleanup() { clearInterval(moveTimer); clearInterval(tickTimer); };
+  }
+
+  // ---------- Keyboard + TV-remote-as-keyboard input ----------
+  document.addEventListener('keydown', function (e) {
+    if (currentScreen === 'add') {
+      // let text inputs behave normally except for explicit navigation keys
+      var tag = document.activeElement && document.activeElement.tagName;
+      if ((e.key === 'ArrowDown' || e.key === 'Tab') && tag !== 'INPUT') { e.preventDefault(); moveFocus('next'); return; }
+    }
+    switch (e.key) {
+      case 'ArrowRight': moveFocus('next'); e.preventDefault(); break;
+      case 'ArrowLeft': moveFocus('prev'); e.preventDefault(); break;
+      case 'ArrowDown': moveFocus('down'); e.preventDefault(); break;
+      case 'ArrowUp': moveFocus('up'); e.preventDefault(); break;
+      case 'Enter': activateFocused(); break;
+      case 'Escape':
+      case 'Backspace':
+        if (currentScreen === 'player') exitGame();
+        else if (currentScreen === 'add') { showScreen('home'); renderHome(); }
+        break;
+    }
+  });
+
+  // sync DOM focus to real input elements when navigating the Add screen
+  var observer = new MutationObserver(function () {});
+  function syncRealFocus() {
+    var el = focusables[focusIndex];
+    if (el && el.tagName === 'INPUT') el.focus();
+  }
+  var origUpdate = updateFocusVisual;
+  updateFocusVisual = function () { origUpdate(); syncRealFocus(); };
+
+  // ---------- Gamepad API (real Bluetooth controllers, paired at the TV/OS level) ----------
+  // Web Bluetooth's device-pairing API cannot drive standard HID game controllers
+  // and has little smart-TV browser support — the correct, working path is:
+  // pair the controller in the TV's own Bluetooth settings, then the browser
+  // exposes it automatically through the standard Gamepad API. That's what
+  // this polls below; there is no in-page "pair" button because none would work.
+  var controllerLabel = document.getElementById('controllerLabel');
+  var controllerStatus = document.getElementById('controllerStatus');
+  var gpState = { buttons: [], axes: [0, 0] };
+  var gpRepeatTimer = 0;
+
+  window.addEventListener('gamepadconnected', function (e) {
+    controllerStatus.classList.add('connected');
+    controllerLabel.textContent = 'Connected: ' + e.gamepad.id;
+  });
+  window.addEventListener('gamepaddisconnected', function () {
+    var pads = navigator.getGamepads ? navigator.getGamepads() : [];
+    var any = false;
+    for (var i = 0; i < pads.length; i++) if (pads[i]) any = true;
+    if (!any) {
+      controllerStatus.classList.remove('connected');
+      controllerLabel.textContent = "No controller — pair one in your TV's Bluetooth settings";
+    }
+  });
+
+  function pollGamepad() {
+    if (navigator.getGamepads) {
+      var pads = navigator.getGamepads();
+      for (var p = 0; p < pads.length; p++) {
+        var gp = pads[p];
+        if (!gp) continue;
+        var b = gp.buttons;
+        var pressed = function (i) { return b[i] && (b[i].pressed || b[i].value > 0.5); };
+        var dpadUp = pressed(12) || gp.axes[1] < -0.6;
+        var dpadDown = pressed(13) || gp.axes[1] > 0.6;
+        var dpadLeft = pressed(14) || gp.axes[0] < -0.6;
+        var dpadRight = pressed(15) || gp.axes[0] > 0.6;
+        var a = pressed(0);
+        var back = pressed(1);
+
+        var now = Date.now();
+        if ((dpadUp || dpadDown || dpadLeft || dpadRight) && now - gpRepeatTimer > 220) {
+          gpRepeatTimer = now;
+          if (dpadRight) moveFocus('next');
+          else if (dpadLeft) moveFocus('prev');
+          else if (dpadDown) moveFocus('down');
+          else if (dpadUp) moveFocus('up');
+        }
+        if (a && !gpState.a) activateFocused();
+        if (back && !gpState.back) {
+          if (currentScreen === 'player') exitGame();
+          else if (currentScreen === 'add') { showScreen('home'); renderHome(); }
+        }
+        gpState.a = a; gpState.back = back;
+      }
+    }
+    requestAnimationFrame(pollGamepad);
+  }
+  requestAnimationFrame(pollGamepad);
+
+  // ---------- Score capture from embedded custom games ----------
+  window.addEventListener('message', function (e) {
+    if (e.data && e.data.type === 'infinityArcadeScore' && typeof e.data.value === 'number' && activeGameId) {
+      recordScore(activeGameId, e.data.value);
+    }
+  });
+
+  // ---------- Boot ----------
+  renderHome();
+})();
+</script>
+</body>
+</html>
