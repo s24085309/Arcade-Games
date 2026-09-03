@@ -106,11 +106,12 @@
   .settingRow { display: flex; align-items: center; justify-content: space-between; gap: 20px; background: var(--panel); border: 2px solid var(--panel-border); border-radius: 16px; padding: 18px 22px; max-width: 640px; }
   .settingRow .label { font-weight: 700; font-size: 15px; }
   .settingRow .desc { color: var(--text-lo); font-size: 13px; margin-top: 4px; max-width: 480px; }
-  .styleChoices { display: flex; gap: 12px; margin-top: 10px; }
+  .styleChoices { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 10px; max-width: 640px; }
   .styleChoice {
     background: var(--panel); border: 2px solid var(--panel-border); border-radius: 14px;
     padding: 14px 20px; font-weight: 800; font-size: 14px; color: var(--text-hi); min-width: 150px; text-align: center;
   }
+  .styleChoice .swatch { display: block; height: 8px; border-radius: 4px; margin-top: 8px; }
   .styleChoice.selected { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(124,92,255,0.25); }
   .styleChoice.focused { border-color: var(--focus); box-shadow: 0 0 0 4px rgba(255,210,63,0.25); }
   #settingsBtn { background: var(--panel); border: 1px solid var(--panel-border); color: var(--text-hi); border-radius: 999px; width: 44px; height: 44px; display: flex; align-items: center; justify-content: center; font-size: 20px; }
@@ -155,6 +156,55 @@
   }
   body.theme-polycade .section-title { color: var(--accent); text-transform: uppercase; }
   body.theme-polycade .logo .inf { filter: drop-shadow(0 0 10px rgba(255,122,26,0.7)); }
+
+  /* ---------- Frost — blue/violet gradient pill UI ---------- */
+  body.theme-frost {
+    --bg: #0d1128; --panel: rgba(255,255,255,0.06); --panel-border: rgba(255,255,255,0.14);
+    --accent: #4facfe; --accent2: #7c5cff; --focus: #7ee8ff;
+  }
+  body.theme-frost .tile {
+    background: linear-gradient(160deg, #4facfe, #7c5cff); border-color: rgba(255,255,255,0.35); border-radius: 22px;
+  }
+  body.theme-frost .tile .name, body.theme-frost .tile .sub { color: #fff; text-shadow: 0 1px 3px rgba(0,0,0,0.35); }
+  body.theme-frost .tile.focused { border-color: #fff; box-shadow: 0 0 0 4px rgba(126,232,255,0.4), 0 14px 30px rgba(79,172,254,0.45); }
+  body.theme-frost .backBtn, body.theme-frost #settingsBtn, body.theme-frost .primaryBtn { border-radius: 999px; }
+
+  /* ---------- Arcade Candy — dark navy cards, candy accent bar per tile ---------- */
+  body.theme-candy {
+    --bg: #121a2e; --panel: #1b2645; --panel-border: #2a375c;
+    --accent: #ff9f43; --accent2: #ff5c8a; --focus: #ffd23f;
+  }
+  body.theme-candy .tile { border-radius: 16px; border-bottom-width: 6px; }
+  body.theme-candy .grid .tile:nth-child(4n+1) { border-bottom-color: #ff9f43; }
+  body.theme-candy .grid .tile:nth-child(4n+2) { border-bottom-color: #ff5c8a; }
+  body.theme-candy .grid .tile:nth-child(4n+3) { border-bottom-color: #2dd4bf; }
+  body.theme-candy .grid .tile:nth-child(4n+4) { border-bottom-color: #4facfe; }
+  body.theme-candy .tile.focused { transform: scale(1.07); box-shadow: 0 0 0 3px rgba(255,210,63,0.35), 0 14px 28px rgba(0,0,0,0.6); }
+
+  /* ---------- Retro Pixel — chunky pixel-art cabinet ---------- */
+  body.theme-retro {
+    --bg: #2a0a3d; --panel: #3a1355; --panel-border: #000;
+    --accent: #ff4fd8; --accent2: #4fe0ff; --focus: #ffe14f;
+    font-family: 'Courier New', monospace;
+  }
+  body.theme-retro { background-image: radial-gradient(#ff4fd822 1.5px, transparent 1.5px); background-size: 14px 14px; }
+  body.theme-retro .tile { border-radius: 4px; border: 3px solid #000; box-shadow: 4px 4px 0 #000; }
+  body.theme-retro .tile.focused { border-color: var(--focus); box-shadow: 4px 4px 0 #000, 0 0 0 3px var(--focus); transform: translate(-2px, -2px); }
+  body.theme-retro .section-title, body.theme-retro .logo, body.theme-retro .marquee { font-family: 'Courier New', monospace; text-transform: uppercase; }
+  body.theme-retro .backBtn, body.theme-retro .primaryBtn, body.theme-retro #settingsBtn { border-radius: 4px; border-width: 3px; border-color: #000; box-shadow: 3px 3px 0 #000; }
+  body.theme-retro .marquee { background: none; -webkit-text-fill-color: initial; color: var(--accent2); text-shadow: 3px 3px 0 #000; animation: none; }
+
+  /* ---------- Neon Void — glowing cyan sci-fi outlines ---------- */
+  body.theme-neon {
+    --bg: #04040c; --panel: rgba(0,255,255,0.04); --panel-border: rgba(0,229,255,0.5);
+    --accent: #00e5ff; --accent2: #ff2ea6; --focus: #ff2ea6;
+  }
+  body.theme-neon .tile { background: rgba(0,229,255,0.05); border-radius: 6px; box-shadow: inset 0 0 12px rgba(0,229,255,0.15); }
+  body.theme-neon .tile .name { text-transform: uppercase; letter-spacing: 0.06em; }
+  body.theme-neon .tile.focused { box-shadow: 0 0 0 2px var(--focus), 0 0 22px rgba(255,46,166,0.7), inset 0 0 16px rgba(255,46,166,0.25); }
+  body.theme-neon .logo .inf, body.theme-neon .section-title { text-shadow: 0 0 10px var(--accent); }
+  body.theme-neon .marquee { text-shadow: 0 0 16px var(--accent2); }
+  body.theme-neon .backBtn, body.theme-neon .primaryBtn, body.theme-neon #settingsBtn { border-radius: 4px; }
 </style>
 </head>
 <body>
@@ -213,12 +263,9 @@
     <div class="settingRow" style="flex-direction: column; align-items: flex-start;">
       <div>
         <div class="label">UI Style</div>
-        <div class="desc">Classic is the default Infinity Arcade look. Polycade mirrors the black-cabinet, poster-art, glowing-marquee style of Polycade's own arcade cabinet software.</div>
+        <div class="desc" id="styleDesc">Classic is the default Infinity Arcade look.</div>
       </div>
-      <div class="styleChoices" id="styleChoices">
-        <button class="styleChoice" data-style="classic">Classic</button>
-        <button class="styleChoice" data-style="polycade">Polycade</button>
-      </div>
+      <div class="styleChoices" id="styleChoices"></div>
     </div>
     <div class="btnRow" style="margin-top: 24px;">
       <button class="backBtn" id="settingsBackBtn">← Back</button>
@@ -247,23 +294,35 @@
       var s = JSON.parse(localStorage.getItem(STORE_KEY)) || {};
       s.customGames = s.customGames || [];
       s.scores = s.scores || {};
-      s.uiStyle = s.uiStyle === 'polycade' ? 'polycade' : 'classic';
+      s.uiStyle = THEMES.some(function (t) { return t.id === s.uiStyle; }) ? s.uiStyle : 'classic';
       return s;
     }
     catch (e) { return { customGames: [], scores: {}, uiStyle: 'classic' }; }
   }
   function saveStore(s) { localStorage.setItem(STORE_KEY, JSON.stringify(s)); }
+
+  // ---------- UI style (Classic / Polycade / Frost / Arcade Candy / Retro Pixel / Neon Void) ----------
+  var THEMES = [
+    { id: 'classic', label: 'Classic', swatch: 'linear-gradient(135deg, #7c5cff, #ff5c8a)', desc: 'The default Infinity Arcade look.' },
+    { id: 'polycade', label: 'Polycade', swatch: 'linear-gradient(135deg, #ff3d3d, #ff7a1a)', desc: "Black-cabinet, poster-art, glowing-marquee style, mirroring Polycade's own arcade cabinet software." },
+    { id: 'frost', label: 'Frost', swatch: 'linear-gradient(135deg, #4facfe, #7c5cff)', desc: 'Soft blue-violet gradient tiles with rounded pill buttons.' },
+    { id: 'candy', label: 'Arcade Candy', swatch: 'linear-gradient(135deg, #ff9f43, #ff5c8a, #2dd4bf, #4facfe)', desc: 'Dark navy cards with a different candy-coloured accent per tile.' },
+    { id: 'retro', label: 'Retro Pixel', swatch: 'linear-gradient(135deg, #ff4fd8, #4fe0ff)', desc: 'Chunky pixel-art cabinet look on a dotted magenta backdrop.' },
+    { id: 'neon', label: 'Neon Void', swatch: 'linear-gradient(135deg, #00e5ff, #ff2ea6)', desc: 'Glowing cyan outlines on black, sci-fi cabinet style.' },
+  ];
+  var MARQUEE_THEMES = ['polycade', 'retro', 'neon'];
+
   var store = loadStore();
 
-  // ---------- UI style (Classic / Polycade) ----------
   function applyUiStyle() {
-    document.body.classList.toggle('theme-polycade', store.uiStyle === 'polycade');
+    THEMES.forEach(function (t) { document.body.classList.remove('theme-' + t.id); });
+    if (store.uiStyle !== 'classic') document.body.classList.add('theme-' + store.uiStyle);
   }
   applyUiStyle();
 
   var marquee = document.getElementById('marquee');
   function setMarquee(text) {
-    if (store.uiStyle !== 'polycade' || !text) { marquee.hidden = true; marquee.textContent = ''; return; }
+    if (MARQUEE_THEMES.indexOf(store.uiStyle) === -1 || !text) { marquee.hidden = true; marquee.textContent = ''; return; }
     marquee.hidden = false;
     marquee.textContent = text;
   }
@@ -370,18 +429,27 @@
   }
 
   // ---------- Settings ----------
-  var styleChoiceEls = Array.prototype.slice.call(document.querySelectorAll('.styleChoice'));
-  function renderStyleChoices() {
-    styleChoiceEls.forEach(function (btn) { btn.classList.toggle('selected', btn.getAttribute('data-style') === store.uiStyle); });
-  }
-  styleChoiceEls.forEach(function (btn) {
+  var styleChoicesContainer = document.getElementById('styleChoices');
+  var styleDescEl = document.getElementById('styleDesc');
+  var styleChoiceEls = THEMES.map(function (theme) {
+    var btn = document.createElement('button');
+    btn.className = 'styleChoice';
+    btn.setAttribute('data-style', theme.id);
+    btn.innerHTML = theme.label + '<span class="swatch" style="background:' + theme.swatch + '"></span>';
     btn.addEventListener('click', function () {
-      store.uiStyle = btn.getAttribute('data-style');
+      store.uiStyle = theme.id;
       saveStore(store);
       applyUiStyle();
       renderStyleChoices();
     });
+    styleChoicesContainer.appendChild(btn);
+    return btn;
   });
+  function renderStyleChoices() {
+    styleChoiceEls.forEach(function (btn, i) { btn.classList.toggle('selected', THEMES[i].id === store.uiStyle); });
+    var current = THEMES.filter(function (t) { return t.id === store.uiStyle; })[0];
+    if (current) styleDescEl.textContent = current.desc;
+  }
   function openSettingsScreen() {
     renderStyleChoices();
     showScreen('settings');
