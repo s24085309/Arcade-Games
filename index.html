@@ -75,7 +75,10 @@
     content: ''; position: absolute; inset: 0;
     background: radial-gradient(circle at 50% 50%, transparent 0%, transparent 40%, #000 92%);
   }
-  #gameHost > *:not(#gameBackdrop) { position: relative; z-index: 1; }
+  /* Stack ordinary game content above the backdrop. Elements that set their
+     own position (the driving game's canvas/HUD/overlay, all absolute) are
+     excluded so this doesn't fight their own positioning. */
+  #gameHost > *:not(#gameBackdrop):not(#driveCanvas):not(.driveHud):not(.driveOverlay) { position: relative; z-index: 1; }
   body.theme-polycade #gameBackdrop .bg-emoji { filter: blur(50px) saturate(1.6) brightness(0.45) hue-rotate(-6deg); }
 
   .backBtn { background: var(--panel); border: 1px solid var(--panel-border); color: var(--text-hi); border-radius: 12px; padding: 10px 20px; font-size: 15px; font-weight: 700; }
@@ -90,6 +93,22 @@
   .primaryBtn { background: linear-gradient(135deg, var(--accent), var(--accent2)); border: none; color: white; font-weight: 800; border-radius: 12px; padding: 14px 28px; font-size: 16px; }
   .primaryBtn.focused { box-shadow: 0 0 0 4px rgba(255,210,63,0.35); }
   .note { color: var(--text-lo); font-size: 14px; max-width: 640px; line-height: 1.5; }
+
+  /* Driving game HUD */
+  #gameHost #driveCanvas { width: 100%; height: 100%; max-width: none; max-height: none; display: block; }
+  .driveHud { position: absolute; inset: 0; pointer-events: none; z-index: 2; font-weight: 800; color: #fff; text-shadow: 0 2px 6px rgba(0,0,0,0.7); }
+  .driveTop { position: absolute; top: 16px; left: 16px; right: 16px; display: flex; justify-content: space-between; align-items: flex-start; }
+  .driveTop .msg { text-align: center; flex: 1; font-size: clamp(16px, 2vw, 26px); letter-spacing: 0.04em; }
+  .driveMeter { width: clamp(90px, 12vw, 140px); }
+  .driveMeter .label { font-size: 11px; letter-spacing: 0.08em; opacity: 0.85; margin-bottom: 4px; }
+  .driveMeter .track { height: 10px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.4); overflow: hidden; background: rgba(0,0,0,0.35); }
+  .driveMeter .fill { height: 100%; width: 0%; transition: width 80ms linear; }
+  #driveHeatFill { background: linear-gradient(90deg, #4ade80, #facc15, #ff3d3d); }
+  #driveNitroFill { background: linear-gradient(90deg, #4facfe, #7c5cff); margin-left: auto; }
+  .driveBottom { position: absolute; bottom: 16px; left: 0; right: 0; text-align: center; font-size: clamp(12px, 1.2vw, 15px); color: rgba(255,255,255,0.85); font-weight: 700; }
+  .driveOverlay { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 18px; background: rgba(3,4,10,0.72); z-index: 3; text-align: center; padding: 20px; }
+  .driveOverlay h2 { margin: 0; font-size: clamp(24px, 3.4vw, 44px); letter-spacing: 0.05em; }
+  .driveOverlay p { margin: 0; color: var(--text-lo); max-width: 480px; font-weight: 600; }
 
   /* generic tic-tac-toe / memory / whack styling */
   .ttt { display: grid; grid-template-columns: repeat(3,1fr); gap: 10px; width: 100%; height: 100%; }
@@ -340,6 +359,10 @@
     currentScreen = name;
   }
 
+  // Set true while a live-action game (currently just the driving game) owns
+  // arrow-key/Enter input directly, so the menu focus system steps aside.
+  var gameInputActive = false;
+
   // ---------- Focus-based navigation (works with keyboard, TV remote as keyboard, and gamepad) ----------
   var focusables = []; // populated per-screen
   var focusIndex = 0;
@@ -384,6 +407,7 @@
     { id: 'ttt', emoji: '❌', name: 'Tic-Tac-Toe', sub: '1 Player · vs CPU' },
     { id: 'memory', emoji: '🧩', name: 'Memory Match', sub: '1 Player' },
     { id: 'whack', emoji: '🔨', name: 'Whack-a-Mole', sub: '1 Player' },
+    { id: 'drive', emoji: '🏎️', name: 'Afterglow Chase', sub: '1 Player · Open World' },
   ];
 
   var builtinGrid = document.getElementById('builtinGrid');
@@ -497,6 +521,7 @@
   function exitGame() {
     if (activeCleanup) { try { activeCleanup(); } catch (e) {} }
     activeCleanup = null;
+    gameInputActive = false;
     gameHost.innerHTML = '';
     showScreen('home');
     renderHome();
@@ -526,6 +551,7 @@
     if (id === 'ttt') activeCleanup = mountTicTacToe(gameHost);
     if (id === 'memory') activeCleanup = mountMemory(gameHost);
     if (id === 'whack') activeCleanup = mountWhack(gameHost);
+    if (id === 'drive') activeCleanup = mountDrive(gameHost);
   }
 
   // ---------- Tic-Tac-Toe ----------
@@ -692,19 +718,325 @@
     return function cleanup() { clearInterval(moveTimer); clearInterval(tickTimer); };
   }
 
+  // ---------- Afterglow Chase — open-world top-down police chase ----------
+  // A bounded procedurally-laid-out city grid (roads + inset buildings),
+  // arcade car physics with a simple drift model, a nitro meter, and one or
+  // more pursuing police cars. Score is seconds evaded; "escape" at 60s.
+  function mountDrive(host) {
+    var canvas = document.createElement('canvas');
+    canvas.id = 'driveCanvas';
+    host.appendChild(canvas);
+    var ctx = canvas.getContext('2d');
+
+    var hud = document.createElement('div');
+    hud.className = 'driveHud';
+    hud.innerHTML =
+      '<div class="driveTop">' +
+        '<div class="driveMeter"><div class="label">HEAT</div><div class="track"><div id="driveHeatFill" class="fill"></div></div></div>' +
+        '<div class="msg" id="driveMsg">00:00</div>' +
+        '<div class="driveMeter"><div class="label" style="text-align:right;">NITRO</div><div class="track"><div id="driveNitroFill" class="fill"></div></div></div>' +
+      '</div>' +
+      '<div class="driveBottom">Arrows / WASD Steer &nbsp;·&nbsp; Space / Shift Nitro &nbsp;·&nbsp; Esc Exit</div>';
+    host.appendChild(hud);
+
+    var overlay = document.createElement('div');
+    overlay.className = 'driveOverlay';
+    overlay.innerHTML =
+      '<h2>🏙️ AFTERGLOW CHASE</h2>' +
+      '<p>One open city. Every street connects. Stay clear of the police — if their heat meter fills, you\'re busted. Evade for 60 seconds to escape clean.</p>' +
+      '<button class="primaryBtn" id="driveStartBtn">START CHASE</button>';
+    host.appendChild(overlay);
+
+    var heatFill = hud.querySelector('#driveHeatFill');
+    var nitroFill = hud.querySelector('#driveNitroFill');
+    var msgEl = hud.querySelector('#driveMsg');
+    var startBtn = overlay.querySelector('#driveStartBtn');
+    setFocusList([startBtn]);
+
+    // ---- world ----
+    var CELL = 420, ROAD = 100, GRID_R = 7; // (2*GRID_R+1)^2 blocks, world ~= 6300px square
+    var half = CELL / 2 - ROAD / 2;
+    var palette = ['#dce6f2', '#e8dfcf', '#d9ece2', '#e6d9ec', '#f0e4d0'];
+    function buildingAt(cx, cy) {
+      if (cx === 0 && cy === 0) return null; // clear starting block
+      return {
+        x: cx * CELL - half, y: cy * CELL - half, w: half * 2, h: half * 2,
+        color: palette[Math.abs(cx * 7 + cy * 13) % palette.length],
+      };
+    }
+    var worldMin = -(GRID_R) * CELL - CELL / 2, worldMax = (GRID_R) * CELL + CELL / 2;
+
+    function resolveCollision(pos, r) {
+      var cx = Math.round(pos.x / CELL), cy = Math.round(pos.y / CELL);
+      for (var dx = -1; dx <= 1; dx++) {
+        for (var dy = -1; dy <= 1; dy++) {
+          var b = buildingAt(cx + dx, cy + dy);
+          if (!b) continue;
+          var closestX = Math.max(b.x, Math.min(pos.x, b.x + b.w));
+          var closestY = Math.max(b.y, Math.min(pos.y, b.y + b.h));
+          var vx = pos.x - closestX, vy = pos.y - closestY;
+          var dist = Math.sqrt(vx * vx + vy * vy);
+          if (dist < r && dist > 0.001) {
+            var push = (r - dist) / dist;
+            pos.x += vx * push; pos.y += vy * push;
+          } else if (dist <= 0.001) {
+            pos.x += r; // degenerate: nudge out
+          }
+        }
+      }
+      pos.x = Math.max(worldMin, Math.min(worldMax, pos.x));
+      pos.y = Math.max(worldMin, Math.min(worldMax, pos.y));
+    }
+
+    // ---- entities ----
+    function makeCar(color) {
+      return { x: 0, y: 0, angle: 0, velAngle: 0, speed: 0, driftTrail: [] };
+    }
+    var player = makeCar();
+    var cops = [];
+    function spawnCop() {
+      var ang = Math.random() * Math.PI * 2;
+      var c = makeCar();
+      c.x = player.x + Math.cos(ang) * 700;
+      c.y = player.y + Math.sin(ang) * 700;
+      c.angle = ang + Math.PI;
+      cops.push(c);
+    }
+
+    // ---- input ----
+    var keys = {};
+    function isDown() {
+      for (var i = 0; i < arguments.length; i++) if (keys[arguments[i]]) return true;
+      return false;
+    }
+    function onKeyDown(e) {
+      keys[e.key] = true;
+      if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', ' '].indexOf(e.key) !== -1) e.preventDefault();
+    }
+    function onKeyUp(e) { keys[e.key] = false; }
+    document.addEventListener('keydown', onKeyDown);
+    document.addEventListener('keyup', onKeyUp);
+
+    function resize() {
+      canvas.width = host.clientWidth; canvas.height = host.clientHeight;
+    }
+    resize();
+    window.addEventListener('resize', resize);
+
+    // ---- game state ----
+    var running = false, over = false, escaped = false;
+    var elapsed = 0, heat = 0, nitro = 100, lastT = null, raf = null;
+    var ESCAPE_TIME = 60;
+
+    function start() {
+      overlay.style.display = 'none';
+      player.x = 0; player.y = 0; player.angle = 0; player.velAngle = 0; player.speed = 0;
+      cops = []; spawnCop();
+      elapsed = 0; heat = 0; nitro = 100; running = true; over = false; escaped = false;
+      gameInputActive = true;
+      lastT = null;
+      raf = requestAnimationFrame(loop);
+    }
+    startBtn.addEventListener('click', start);
+
+    function end(didEscape) {
+      running = false; over = true; escaped = didEscape;
+      gameInputActive = false;
+      var score = Math.round(elapsed * 10) + (didEscape ? 500 : 0);
+      recordScore('drive', score);
+      overlay.style.display = 'flex';
+      overlay.innerHTML =
+        '<h2>' + (didEscape ? '🏁 ESCAPED CLEAN' : '🚨 BUSTED') + '</h2>' +
+        '<p>' + (didEscape ? 'You shook every unit for a full minute.' : 'The police caught up with you.') + ' Survived ' + elapsed.toFixed(1) + 's · Score ' + score + '</p>' +
+        '<button class="primaryBtn" id="driveStartBtn">' + (didEscape ? 'RUN IT AGAIN' : 'TRY AGAIN') + '</button>';
+      var retryBtn = overlay.querySelector('#driveStartBtn');
+      retryBtn.addEventListener('click', start);
+      setFocusList([retryBtn]);
+    }
+
+    function updatePlayer(dt) {
+      var steer = (isDown('ArrowRight', 'd', 'D') ? 1 : 0) - (isDown('ArrowLeft', 'a', 'A') ? 1 : 0);
+      var accel = (isDown('ArrowUp', 'w', 'W') ? 1 : 0) - (isDown('ArrowDown', 's', 'S') ? 1 : 0);
+      var wantNitro = isDown(' ', 'Shift') && nitro > 0;
+
+      var gp = navigator.getGamepads ? navigator.getGamepads() : [];
+      for (var i = 0; i < gp.length; i++) {
+        var pad = gp[i]; if (!pad) continue;
+        if (Math.abs(pad.axes[0]) > 0.15) steer = Math.max(-1, Math.min(1, steer + pad.axes[0]));
+        if (pad.buttons[7] && pad.buttons[7].value > 0.1) accel = Math.max(accel, pad.buttons[7].value);
+        if (pad.buttons[6] && pad.buttons[6].value > 0.1) accel = Math.min(accel, -pad.buttons[6].value);
+        if ((pad.buttons[0] && pad.buttons[0].pressed) || (pad.buttons[2] && pad.buttons[2].pressed)) wantNitro = wantNitro || nitro > 0;
+      }
+
+      var maxSpeed = wantNitro ? 620 : 380;
+      var accelRate = 420, brakeRate = 600, friction = 220;
+      if (accel > 0) player.speed += accelRate * dt;
+      else if (accel < 0) player.speed -= brakeRate * dt;
+      else player.speed -= Math.sign(player.speed) * friction * dt;
+      player.speed = Math.max(-180, Math.min(maxSpeed, player.speed));
+      if (Math.abs(player.speed) < 4) player.speed = 0;
+
+      var speedFactor = Math.min(1, Math.abs(player.speed) / 220);
+      player.angle += steer * 2.6 * dt * speedFactor * (player.speed < 0 ? -1 : 1);
+
+      // drift: velocity heading lags behind facing heading; grip loosens at
+      // high speed + hard steering, giving a sliding, arcade-style drift.
+      var grip = (Math.abs(steer) > 0.4 && Math.abs(player.speed) > 260) ? 2.2 : 9;
+      var da = player.angle - player.velAngle;
+      while (da > Math.PI) da -= Math.PI * 2;
+      while (da < -Math.PI) da += Math.PI * 2;
+      player.velAngle += da * Math.min(1, grip * dt);
+
+      if (wantNitro && (accel > 0 || player.speed > 300)) nitro = Math.max(0, nitro - 45 * dt);
+      else nitro = Math.min(100, nitro + 18 * dt);
+
+      var nx = player.x + Math.sin(player.velAngle) * player.speed * dt;
+      var ny = player.y - Math.cos(player.velAngle) * player.speed * dt;
+      var pos = { x: nx, y: ny };
+      resolveCollision(pos, 16);
+      player.x = pos.x; player.y = pos.y;
+
+      if (Math.abs(steer) > 0.4 && Math.abs(player.speed) > 260) {
+        player.driftTrail.push({ x: player.x, y: player.y, life: 1 });
+      }
+      player.driftTrail = player.driftTrail.filter(function (p) { p.life -= dt * 0.8; return p.life > 0; });
+    }
+
+    function updateCops(dt) {
+      if (elapsed > 20 && cops.length < 2) spawnCop();
+      if (elapsed > 40 && cops.length < 3) spawnCop();
+
+      var minDist = Infinity;
+      cops.forEach(function (c) {
+        var dx = player.x - c.x, dy = player.y - c.y;
+        var dist = Math.sqrt(dx * dx + dy * dy);
+        minDist = Math.min(minDist, dist);
+        var targetAngle = Math.atan2(dx, -dy);
+        var da = targetAngle - c.angle;
+        while (da > Math.PI) da -= Math.PI * 2;
+        while (da < -Math.PI) da += Math.PI * 2;
+        c.angle += Math.max(-2.2 * dt, Math.min(2.2 * dt, da));
+        // Braking scales continuously with distance (rather than a hard
+        // step) so the cop settles onto the player instead of repeatedly
+        // overshooting and circling back around — verified this was a real
+        // bug: heat was oscillating back to 0% instead of climbing.
+        var targetSpeed = Math.max(30, Math.min(340, dist * 2.6));
+        c.speed += (targetSpeed - c.speed) * Math.min(1, dt * 6);
+        c.velAngle = c.angle;
+        var nx = c.x + Math.sin(c.angle) * c.speed * dt;
+        var ny = c.y - Math.cos(c.angle) * c.speed * dt;
+        var pos = { x: nx, y: ny };
+        resolveCollision(pos, 16);
+        c.x = pos.x; c.y = pos.y;
+      });
+
+      if (minDist < 130) heat = Math.min(100, heat + (150 - minDist) * 0.35 * dt);
+      else heat = Math.max(0, heat - 22 * dt);
+
+      if (heat >= 100) end(false);
+    }
+
+    function drawCar(car, bodyColor, roofColor, isPlayer) {
+      ctx.save();
+      ctx.translate(car.x - camX + canvas.width / 2, car.y - camY + canvas.height / 2);
+      ctx.rotate(car.velAngle);
+      if (isPlayer && Math.abs(player.speed) > 300 && isDown(' ', 'Shift')) {
+        ctx.fillStyle = 'rgba(255,150,40,0.85)';
+        ctx.beginPath(); ctx.moveTo(-6, 16); ctx.lineTo(6, 16); ctx.lineTo(0, 34 + Math.random() * 14); ctx.fill();
+      }
+      ctx.fillStyle = bodyColor;
+      ctx.beginPath();
+      if (ctx.roundRect) ctx.roundRect(-11, -18, 22, 36, 6); else ctx.rect(-11, -18, 22, 36);
+      ctx.fill();
+      ctx.fillStyle = roofColor;
+      ctx.fillRect(-7, -8, 14, 16);
+      if (!isPlayer) {
+        ctx.fillStyle = (Math.floor(performance.now() / 180) % 2 === 0) ? '#ff3d3d' : '#3d6bff';
+        ctx.fillRect(-8, -18, 16, 4);
+      }
+      ctx.restore();
+    }
+
+    var camX = 0, camY = 0;
+    function draw() {
+      var w = canvas.width, h = canvas.height;
+      camX = player.x; camY = player.y;
+      ctx.fillStyle = '#232838';
+      ctx.fillRect(0, 0, w, h);
+
+      var viewCellsX = Math.ceil(w / CELL) + 2, viewCellsY = Math.ceil(h / CELL) + 2;
+      var cx0 = Math.round(camX / CELL) - Math.ceil(viewCellsX / 2);
+      var cy0 = Math.round(camY / CELL) - Math.ceil(viewCellsY / 2);
+      for (var gx = 0; gx <= viewCellsX; gx++) {
+        for (var gy = 0; gy <= viewCellsY; gy++) {
+          var cx = cx0 + gx, cy = cy0 + gy;
+          var b = buildingAt(cx, cy);
+          if (!b) continue;
+          var sx = b.x - camX + w / 2, sy = b.y - camY + h / 2;
+          ctx.fillStyle = b.color;
+          ctx.fillRect(sx, sy, b.w, b.h);
+          ctx.fillStyle = 'rgba(0,0,0,0.12)';
+          for (var wx = 8; wx < b.w - 8; wx += 22) {
+            for (var wy = 8; wy < b.h - 8; wy += 22) ctx.fillRect(sx + wx, sy + wy, 10, 10);
+          }
+        }
+      }
+
+      player.driftTrail.forEach(function (p) {
+        ctx.fillStyle = 'rgba(0,0,0,' + (0.25 * p.life) + ')';
+        ctx.beginPath(); ctx.arc(p.x - camX + w / 2, p.y - camY + h / 2, 5, 0, 7); ctx.fill();
+      });
+
+      cops.forEach(function (c) { drawCar({ x: c.x, y: c.y, velAngle: c.velAngle }, '#f2f4f8', '#232838', false); });
+      drawCar({ x: player.x, y: player.y, velAngle: player.velAngle }, '#ff3d3d', '#231018', true);
+    }
+
+    function loop(t) {
+      if (!lastT) lastT = t;
+      var dt = Math.min(0.05, (t - lastT) / 1000);
+      lastT = t;
+      if (running) {
+        elapsed += dt;
+        updatePlayer(dt);
+        updateCops(dt);
+        heatFill.style.width = heat + '%';
+        nitroFill.style.width = nitro + '%';
+        var mm = Math.floor(elapsed / 60), ss = Math.floor(elapsed % 60);
+        msgEl.textContent = (mm < 10 ? '0' : '') + mm + ':' + (ss < 10 ? '0' : '') + ss;
+        if (elapsed >= ESCAPE_TIME) end(true);
+      }
+      draw();
+      raf = requestAnimationFrame(loop);
+    }
+    raf = requestAnimationFrame(loop);
+
+    return function cleanup() {
+      running = false;
+      gameInputActive = false;
+      if (raf) cancelAnimationFrame(raf);
+      document.removeEventListener('keydown', onKeyDown);
+      document.removeEventListener('keyup', onKeyUp);
+      window.removeEventListener('resize', resize);
+    };
+  }
+
   // ---------- Keyboard + TV-remote-as-keyboard input ----------
   document.addEventListener('keydown', function (e) {
-    if (currentScreen === 'add') {
+    if (currentScreen === 'add' && !gameInputActive) {
       // let text inputs behave normally except for explicit navigation keys
       var tag = document.activeElement && document.activeElement.tagName;
       if ((e.key === 'ArrowDown' || e.key === 'Tab') && tag !== 'INPUT') { e.preventDefault(); moveFocus('next'); return; }
     }
+    if (!gameInputActive) {
+      switch (e.key) {
+        case 'ArrowRight': moveFocus('next'); e.preventDefault(); break;
+        case 'ArrowLeft': moveFocus('prev'); e.preventDefault(); break;
+        case 'ArrowDown': moveFocus('down'); e.preventDefault(); break;
+        case 'ArrowUp': moveFocus('up'); e.preventDefault(); break;
+        case 'Enter': activateFocused(); break;
+      }
+    }
     switch (e.key) {
-      case 'ArrowRight': moveFocus('next'); e.preventDefault(); break;
-      case 'ArrowLeft': moveFocus('prev'); e.preventDefault(); break;
-      case 'ArrowDown': moveFocus('down'); e.preventDefault(); break;
-      case 'ArrowUp': moveFocus('up'); e.preventDefault(); break;
-      case 'Enter': activateFocused(); break;
       case 'Escape':
       case 'Backspace':
         if (currentScreen === 'player') exitGame();
@@ -763,14 +1095,16 @@
         var back = pressed(1);
 
         var now = Date.now();
-        if ((dpadUp || dpadDown || dpadLeft || dpadRight) && now - gpRepeatTimer > 220) {
-          gpRepeatTimer = now;
-          if (dpadRight) moveFocus('next');
-          else if (dpadLeft) moveFocus('prev');
-          else if (dpadDown) moveFocus('down');
-          else if (dpadUp) moveFocus('up');
+        if (!gameInputActive) {
+          if ((dpadUp || dpadDown || dpadLeft || dpadRight) && now - gpRepeatTimer > 220) {
+            gpRepeatTimer = now;
+            if (dpadRight) moveFocus('next');
+            else if (dpadLeft) moveFocus('prev');
+            else if (dpadDown) moveFocus('down');
+            else if (dpadUp) moveFocus('up');
+          }
+          if (a && !gpState.a) activateFocused();
         }
-        if (a && !gpState.a) activateFocused();
         if (back && !gpState.back) {
           if (currentScreen === 'player') exitGame();
           else if (currentScreen === 'add' || currentScreen === 'settings') { showScreen('home'); renderHome(); }
