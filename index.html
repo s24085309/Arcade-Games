@@ -121,6 +121,16 @@
   .memory .cell.shown { background: rgba(255,255,255,0.14); }
   .gameStatus { position: absolute; bottom: 16px; left: 0; right: 0; text-align: center; font-weight: 800; font-size: clamp(16px, 2vw, 26px); color: var(--text-hi); text-shadow: 0 2px 8px rgba(0,0,0,0.6); }
 
+  /* Color Memory (Simon) */
+  .simon.grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 14px; width: min(66vh, 58vw, 420px); aspect-ratio: 1; }
+  .simon .pad { border: 4px solid rgba(0,0,0,0.35); opacity: 0.55; transition: opacity 80ms ease, transform 80ms ease; }
+  .simon .pad:nth-child(1) { background: #ff3d3d; border-radius: 20px 4px 4px 4px; }
+  .simon .pad:nth-child(2) { background: #4facfe; border-radius: 4px 20px 4px 4px; }
+  .simon .pad:nth-child(3) { background: #facc15; border-radius: 4px 4px 4px 20px; }
+  .simon .pad:nth-child(4) { background: #22c55e; border-radius: 4px 4px 20px 4px; }
+  .simon .pad.lit { opacity: 1; box-shadow: 0 0 26px currentColor, inset 0 0 20px rgba(255,255,255,0.5); transform: scale(0.97); }
+  .simon .pad.focused { border-color: var(--focus); }
+
   /* Settings */
   .settingRow { display: flex; align-items: center; justify-content: space-between; gap: 20px; background: var(--panel); border: 2px solid var(--panel-border); border-radius: 16px; padding: 18px 22px; max-width: 640px; }
   .settingRow .label { font-weight: 700; font-size: 15px; }
@@ -408,6 +418,7 @@
     { id: 'memory', emoji: '🧩', name: 'Memory Match', sub: '1 Player' },
     { id: 'whack', emoji: '🔨', name: 'Whack-a-Mole', sub: '1 Player' },
     { id: 'drive', emoji: '🏎️', name: 'Afterglow Chase', sub: '1 Player · Open World' },
+    { id: 'simon', emoji: '🔴🟦🟡🟢', name: 'Color Memory', sub: '1 Player · Repeat the pattern' },
   ];
 
   var builtinGrid = document.getElementById('builtinGrid');
@@ -552,6 +563,7 @@
     if (id === 'memory') activeCleanup = mountMemory(gameHost);
     if (id === 'whack') activeCleanup = mountWhack(gameHost);
     if (id === 'drive') activeCleanup = mountDrive(gameHost);
+    if (id === 'simon') activeCleanup = mountSimon(gameHost);
   }
 
   // ---------- Tic-Tac-Toe ----------
@@ -716,6 +728,88 @@
     }
     render();
     return function cleanup() { clearInterval(moveTimer); clearInterval(tickTimer); };
+  }
+
+  // ---------- Color Memory (Simon) ----------
+  function mountSimon(host) {
+    var COLORS = ['red', 'blue', 'yellow', 'green'];
+    var sequence = [], playerStep = 0, round = 0, accepting = false, timers = [];
+
+    var wrap = document.createElement('div');
+    wrap.style.cssText = 'position:relative;width:100%;height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:18px;';
+    var pad = document.createElement('div');
+    pad.className = 'simon grid';
+    var status = document.createElement('div');
+    status.className = 'gameStatus';
+    status.style.position = 'static';
+    status.style.textShadow = 'none';
+    wrap.appendChild(pad); wrap.appendChild(status);
+    host.appendChild(wrap);
+
+    var cells = COLORS.map(function (color, i) {
+      var btn = document.createElement('button');
+      btn.className = 'pad';
+      btn.style.color = { red: '#ff3d3d', blue: '#4facfe', yellow: '#facc15', green: '#22c55e' }[color];
+      btn.addEventListener('click', function () { onPlayerPick(i); });
+      pad.appendChild(btn);
+      return btn;
+    });
+
+    function clearTimers() { timers.forEach(clearTimeout); timers = []; }
+    function after(ms, fn) { var id = setTimeout(fn, ms); timers.push(id); return id; }
+
+    function flash(i, ms) {
+      cells[i].classList.add('lit');
+      after(ms, function () { cells[i].classList.remove('lit'); });
+    }
+
+    function playSequence() {
+      accepting = false;
+      setFocusList([]);
+      status.textContent = 'Watch closely… Round ' + round;
+      sequence.forEach(function (i, idx) {
+        after(500 + idx * 650, function () { flash(i, 420); });
+      });
+      after(500 + sequence.length * 650, function () {
+        accepting = true; playerStep = 0;
+        status.textContent = 'Your turn — repeat the pattern';
+        setFocusList(cells);
+      });
+    }
+
+    function nextRound() {
+      round++;
+      sequence.push(Math.floor(Math.random() * 4));
+      playSequence();
+    }
+
+    function onPlayerPick(i) {
+      if (!accepting) return;
+      flash(i, 220);
+      if (i !== sequence[playerStep]) {
+        accepting = false;
+        var score = round - 1;
+        recordScore('simon', score);
+        status.textContent = "Wrong! You reached round " + round + " (best sequence: " + score + ")";
+        after(1200, function () { start(); });
+        return;
+      }
+      playerStep++;
+      if (playerStep === sequence.length) {
+        accepting = false;
+        status.textContent = 'Nice! Get ready…';
+        after(900, nextRound);
+      }
+    }
+
+    function start() {
+      clearTimers();
+      sequence = []; round = 0; playerStep = 0; accepting = false;
+      nextRound();
+    }
+    start();
+
+    return function cleanup() { clearTimers(); };
   }
 
   // ---------- Afterglow Chase — open-world top-down police chase ----------
@@ -936,23 +1030,79 @@
       if (heat >= 100) end(false);
     }
 
-    function drawCar(car, bodyColor, roofColor, isPlayer) {
+    // Car colour palettes — a shaded, low-poly-3D look (gradient body,
+    // wheels, windshield, gloss streak, drop shadow) rather than a flat
+    // rotated rectangle, styled after the reference car's red-body /
+    // dark-cabin sports coupe.
+    var PLAYER_PALETTE = { light: '#ff8a6b', mid: '#ff3d3d', dark: '#9e1616', roof: '#221016', window: '#bfe4ff', wheel: '#161616' };
+    var COP_PALETTE = { light: '#ffffff', mid: '#eef1f6', dark: '#aab2c2', roof: '#1c2333', window: '#bfe4ff', wheel: '#161616' };
+
+    function drawCar(car, palette, isPlayer) {
       ctx.save();
       ctx.translate(car.x - camX + canvas.width / 2, car.y - camY + canvas.height / 2);
       ctx.rotate(car.velAngle);
+
+      // drop shadow (kept screen-aligned-ish by drawing before rotation is
+      // "felt" much at this scale — a cheap but convincing approximation)
+      ctx.save();
+      ctx.rotate(-car.velAngle);
+      ctx.fillStyle = 'rgba(0,0,0,0.35)';
+      ctx.beginPath(); ctx.ellipse(3, 5, 13, 20, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.restore();
+
       if (isPlayer && Math.abs(player.speed) > 300 && isDown(' ', 'Shift')) {
-        ctx.fillStyle = 'rgba(255,150,40,0.85)';
+        var flameGrad = ctx.createLinearGradient(0, 16, 0, 36);
+        flameGrad.addColorStop(0, 'rgba(255,220,120,0.95)');
+        flameGrad.addColorStop(1, 'rgba(255,90,20,0)');
+        ctx.fillStyle = flameGrad;
         ctx.beginPath(); ctx.moveTo(-6, 16); ctx.lineTo(6, 16); ctx.lineTo(0, 34 + Math.random() * 14); ctx.fill();
       }
-      ctx.fillStyle = bodyColor;
+
+      // wheels, under the body
+      ctx.fillStyle = palette.wheel;
+      [[-12, -11], [12, -11], [-12, 11], [12, 11]].forEach(function (p) {
+        ctx.fillRect(p[0] - 2.5, p[1] - 5, 5, 10);
+      });
+
+      // body — cross-car gradient so it reads as curved sheet metal, not flat
+      var bodyGrad = ctx.createLinearGradient(-11, 0, 11, 0);
+      bodyGrad.addColorStop(0, palette.dark);
+      bodyGrad.addColorStop(0.45, palette.mid);
+      bodyGrad.addColorStop(0.55, palette.light);
+      bodyGrad.addColorStop(1, palette.dark);
+      ctx.fillStyle = bodyGrad;
       ctx.beginPath();
-      if (ctx.roundRect) ctx.roundRect(-11, -18, 22, 36, 6); else ctx.rect(-11, -18, 22, 36);
+      if (ctx.roundRect) ctx.roundRect(-11, -18, 22, 36, 7); else ctx.rect(-11, -18, 22, 36);
       ctx.fill();
-      ctx.fillStyle = roofColor;
-      ctx.fillRect(-7, -8, 14, 16);
+      ctx.strokeStyle = 'rgba(0,0,0,0.25)'; ctx.lineWidth = 1; ctx.stroke();
+
+      // cabin / roof, inset with a lighter windshield band toward the front
+      ctx.fillStyle = palette.roof;
+      ctx.beginPath();
+      if (ctx.roundRect) ctx.roundRect(-7.5, -9, 15, 17, 3); else ctx.rect(-7.5, -9, 15, 17);
+      ctx.fill();
+      ctx.fillStyle = palette.window;
+      ctx.globalAlpha = 0.85;
+      ctx.beginPath();
+      if (ctx.roundRect) ctx.roundRect(-6, -8, 12, 6, 2); else ctx.rect(-6, -8, 12, 6);
+      ctx.fill();
+      ctx.globalAlpha = 1;
+
+      // gloss streak for a rounded, 3D sheen
+      ctx.fillStyle = 'rgba(255,255,255,0.25)';
+      ctx.beginPath();
+      ctx.moveTo(-8, -16); ctx.lineTo(-5, -16); ctx.lineTo(-8, 16); ctx.lineTo(-10, 16); ctx.closePath();
+      ctx.fill();
+
+      // front headlight glints + rear lights
+      ctx.fillStyle = 'rgba(255,255,255,0.9)';
+      ctx.fillRect(-9, -17.5, 3, 2); ctx.fillRect(6, -17.5, 3, 2);
+      ctx.fillStyle = isPlayer ? '#ff5c5c' : '#ff3d3d';
+      ctx.fillRect(-9, 16, 3, 1.6); ctx.fillRect(6, 16, 3, 1.6);
+
       if (!isPlayer) {
         ctx.fillStyle = (Math.floor(performance.now() / 180) % 2 === 0) ? '#ff3d3d' : '#3d6bff';
-        ctx.fillRect(-8, -18, 16, 4);
+        ctx.fillRect(-8, -18.5, 16, 4);
       }
       ctx.restore();
     }
@@ -987,8 +1137,8 @@
         ctx.beginPath(); ctx.arc(p.x - camX + w / 2, p.y - camY + h / 2, 5, 0, 7); ctx.fill();
       });
 
-      cops.forEach(function (c) { drawCar({ x: c.x, y: c.y, velAngle: c.velAngle }, '#f2f4f8', '#232838', false); });
-      drawCar({ x: player.x, y: player.y, velAngle: player.velAngle }, '#ff3d3d', '#231018', true);
+      cops.forEach(function (c) { drawCar({ x: c.x, y: c.y, velAngle: c.velAngle }, COP_PALETTE, false); });
+      drawCar({ x: player.x, y: player.y, velAngle: player.velAngle }, PLAYER_PALETTE, true);
     }
 
     function loop(t) {
