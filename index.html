@@ -1491,21 +1491,35 @@
       ctx.restore();
     }
 
+    function panelBox(x, y, w, h, label, labelColor) {
+      ctx.fillStyle = '#000';
+      ctx.fillRect(x, y, w, h);
+      ctx.strokeStyle = '#8a8fa3';
+      ctx.lineWidth = 2;
+      ctx.strokeRect(x + 1, y + 1, w - 2, h - 2);
+      if (label) {
+        ctx.font = '700 11px "Courier New", monospace';
+        ctx.fillStyle = labelColor || '#8a8fa3';
+        ctx.textAlign = 'center';
+        ctx.fillText(label, x + w / 2, y - 6);
+        ctx.textAlign = 'left';
+      }
+    }
+
     function drawBoard(b, areaX, areaW, h) {
-      var cs = Math.max(8, Math.floor(Math.min((areaW * 0.62) / COLS, (h * 0.86) / ROWS)));
+      var panelW = 92;
+      var cs = Math.max(8, Math.floor(Math.min((areaW - panelW - 40) / COLS, (h * 0.86) / ROWS)));
       var bw = cs * COLS, bh = cs * ROWS;
-      var bx = areaX + (areaW - bw) / 2 - (playerCount === 2 ? 30 : 70), by = (h - bh) / 2 + 14;
+      var totalW = bw + 16 + panelW;
+      var bx = areaX + (areaW - totalW) / 2, by = (h - bh) / 2 + 18;
 
-      ctx.font = '700 14px sans-serif';
-      ctx.fillStyle = playerCount === 2 ? b.color : 'rgba(255,255,255,0.7)';
-      ctx.fillText(b.label + '  SCORE ' + b.score + '  ·  LVL ' + b.level + '  ·  LINES ' + b.lines, bx, by - 10);
-      if (!b.alive) { ctx.fillStyle = 'rgba(255,61,61,0.9)'; ctx.font = '800 16px sans-serif'; ctx.fillText('TOPPED OUT', bx, by + bh / 2); }
+      // Classic frame: thick light border around a solid black playfield.
+      panelBox(bx - 4, by - 4, bw + 8, bh + 8, b.label, playerCount === 2 ? b.color : '#8a8fa3');
 
-      ctx.fillStyle = 'rgba(255,255,255,0.04)';
-      ctx.fillRect(bx, by, bw, bh);
-      ctx.strokeStyle = 'rgba(255,255,255,0.1)';
-      for (var c = 0; c <= COLS; c++) { ctx.beginPath(); ctx.moveTo(bx + c * cs, by); ctx.lineTo(bx + c * cs, by + bh); ctx.stroke(); }
-      for (var r = 0; r <= ROWS; r++) { ctx.beginPath(); ctx.moveTo(bx, by + r * cs); ctx.lineTo(bx + bw, by + r * cs); ctx.stroke(); }
+      ctx.strokeStyle = 'rgba(255,255,255,0.08)';
+      ctx.lineWidth = 1;
+      for (var c = 1; c < COLS; c++) { ctx.beginPath(); ctx.moveTo(bx + c * cs, by); ctx.lineTo(bx + c * cs, by + bh); ctx.stroke(); }
+      for (var r = 1; r < ROWS; r++) { ctx.beginPath(); ctx.moveTo(bx, by + r * cs); ctx.lineTo(bx + bw, by + r * cs); ctx.stroke(); }
 
       if (b.board) {
         for (var ry = 0; ry < ROWS; ry++) {
@@ -1525,19 +1539,39 @@
           if (b.piece.y + cell[1] >= 0) drawCell(rect[0], rect[1], rect[2], rect[3], b.piece.color);
         });
       }
+      if (!b.alive) {
+        ctx.fillStyle = 'rgba(0,0,0,0.6)'; ctx.fillRect(bx, by, bw, bh);
+        ctx.fillStyle = '#ff3d3d'; ctx.font = '800 16px "Courier New", monospace'; ctx.textAlign = 'center';
+        ctx.fillText('TOPPED OUT', bx + bw / 2, by + bh / 2); ctx.textAlign = 'left';
+      }
+
+      // Side panel: classic stacked NEXT / SCORE / LEVEL / LINES boxes.
+      var px = bx + bw + 16, py = by - 4;
+      var pcs = Math.max(8, cs * 0.55);
+      panelBox(px, py, panelW, panelW, 'NEXT');
       if (b.nextType) {
-        var nx = bx + bw + 20, ny = by + 24, pcs = Math.max(8, cs * 0.6);
-        ctx.fillStyle = 'rgba(255,255,255,0.7)'; ctx.font = '700 12px sans-serif'; ctx.fillText('NEXT', nx, ny - 4);
-        ctx.fillStyle = 'rgba(255,255,255,0.05)'; ctx.fillRect(nx, ny, pcs * 4, pcs * 4);
-        SHAPES[b.nextType].cells.forEach(function (cell) {
-          drawCell(nx + cell[0] * pcs, ny + cell[1] * pcs, pcs, pcs, SHAPES[b.nextType].color);
+        var shape = SHAPES[b.nextType];
+        var offX = px + (panelW - shape.size * pcs) / 2, offY = py + (panelW - shape.size * pcs) / 2;
+        shape.cells.forEach(function (cell) {
+          drawCell(offX + cell[0] * pcs, offY + cell[1] * pcs, pcs, pcs, shape.color);
         });
       }
+      var statY = py + panelW + 22, statH = 40, gap = 14;
+      panelBox(px, statY, panelW, statH, 'SCORE');
+      ctx.font = '700 13px "Courier New", monospace'; ctx.fillStyle = '#fff'; ctx.textAlign = 'center';
+      ctx.fillText(String(b.score), px + panelW / 2, statY + statH / 2 + 5);
+      statY += statH + gap;
+      panelBox(px, statY, panelW, statH, 'LEVEL');
+      ctx.fillText(String(b.level), px + panelW / 2, statY + statH / 2 + 5);
+      statY += statH + gap;
+      panelBox(px, statY, panelW, statH, 'LINES');
+      ctx.fillText(String(b.lines), px + panelW / 2, statY + statH / 2 + 5);
+      ctx.textAlign = 'left';
     }
 
     function draw() {
       var w = canvas.width, h = canvas.height;
-      ctx.fillStyle = '#15161f';
+      ctx.fillStyle = '#0a0a0e';
       ctx.fillRect(0, 0, w, h);
       if (!p1) return;
       if (playerCount === 2 && p2) {
