@@ -1255,7 +1255,7 @@
         label: label, color: color, controls: controls, gamepadIndex: gamepadIndex,
         board: null, piece: null, nextType: null, bag: [],
         score: 0, lines: 0, level: 1, dropInterval: 1000, dropAcc: 0,
-        alive: false, gpPrev: {},
+        alive: false, gpPrev: {}, pieceCounts: { I: 0, O: 0, T: 0, S: 0, Z: 0, J: 0, L: 0 },
       };
 
       function freshBoard() {
@@ -1269,6 +1269,7 @@
       }
       function spawn(type) {
         var def = SHAPES[type];
+        b.pieceCounts[type] = (b.pieceCounts[type] || 0) + 1;
         return { type: type, size: def.size, color: def.color, cells: def.cells.slice(), x: Math.floor((COLS - def.size) / 2), y: -1 };
       }
       function collides(p, dx, dy, cells) {
@@ -1357,6 +1358,7 @@
         b.piece = spawn(drawBag());
         b.score = 0; b.lines = 0; b.level = 1; b.dropInterval = 1000; b.dropAcc = 0;
         b.alive = true;
+        b.pieceCounts = { I: 0, O: 0, T: 0, S: 0, Z: 0, J: 0, L: 0 };
       };
       b._lock = lockPiece;
       return b;
@@ -1510,8 +1512,9 @@
       var panelW = 92;
       var cs = Math.max(8, Math.floor(Math.min((areaW - panelW - 40) / COLS, (h * 0.86) / ROWS)));
       var bw = cs * COLS, bh = cs * ROWS;
-      var totalW = bw + 16 + panelW;
-      var bx = areaX + (areaW - totalW) / 2, by = (h - bh) / 2 + 18;
+      var statsW = (playerCount === 1) ? 92 : 0;
+      var totalW = bw + 16 + panelW + (statsW ? statsW + 16 : 0);
+      var bx = areaX + (areaW - totalW) / 2 + statsW + (statsW ? 16 : 0), by = (h - bh) / 2 + 18;
 
       // Classic frame: thick light border around a solid black playfield.
       panelBox(bx - 4, by - 4, bw + 8, bh + 8, b.label, playerCount === 2 ? b.color : '#8a8fa3');
@@ -1567,6 +1570,31 @@
       panelBox(px, statY, panelW, statH, 'LINES');
       ctx.fillText(String(b.lines), px + panelW / 2, statY + statH / 2 + 5);
       ctx.textAlign = 'left';
+
+      // Classic "piece statistics" bar graph on the left, 1 player only.
+      if (statsW) {
+        var sx = bx - 16 - statsW, sy = by - 4, sh = bh + 8;
+        panelBox(sx, sy, statsW, sh, 'PIECES');
+        var types = ['I', 'O', 'T', 'S', 'Z', 'J', 'L'];
+        var rowH = sh / types.length;
+        var maxCount = 1;
+        types.forEach(function (t) { if (b.pieceCounts[t] > maxCount) maxCount = b.pieceCounts[t]; });
+        var barAreaH = rowH - 10, barMaxW = statsW - 46;
+        types.forEach(function (t, i) {
+          var ry0 = sy + i * rowH;
+          var cnt = b.pieceCounts[t] || 0;
+          var bw2 = Math.max(cnt ? 4 : 0, (cnt / maxCount) * barMaxW);
+          ctx.fillStyle = SHAPES[t].color;
+          ctx.fillRect(sx + 8, ry0 + 6, 12, barAreaH - 4);
+          var trackX = sx + 26;
+          ctx.strokeStyle = 'rgba(255,255,255,0.15)'; ctx.lineWidth = 1;
+          ctx.strokeRect(trackX + 0.5, ry0 + 5.5, barMaxW, barAreaH - 3);
+          if (bw2 > 0) { ctx.fillStyle = SHAPES[t].color; ctx.fillRect(trackX + 1, ry0 + 6, bw2 - 1, barAreaH - 5); }
+          ctx.font = '700 11px "Courier New", monospace'; ctx.fillStyle = '#fff'; ctx.textAlign = 'right';
+          ctx.fillText(String(cnt), sx + statsW - 6, ry0 + rowH / 2 + 4);
+          ctx.textAlign = 'left';
+        });
+      }
     }
 
     function draw() {
