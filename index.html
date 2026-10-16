@@ -78,7 +78,13 @@
   /* Stack ordinary game content above the backdrop. Elements that set their
      own position (the driving game's canvas/HUD/overlay, all absolute) are
      excluded so this doesn't fight their own positioning. */
-  #gameHost > *:not(#gameBackdrop):not(#driveCanvas):not(.driveHud):not(.driveOverlay) { position: relative; z-index: 1; }
+  /* Canvas elements get position:relative + z-index:1 from this rule too —
+     without it an absolutely-positioned z-index:0 backdrop paints ABOVE a
+     plain static-positioned canvas despite the canvas drawing an opaque
+     background fill, since static content stacks below positioned
+     siblings regardless of DOM order. Only .driveHud/.driveOverlay are
+     excluded, since they declare their own position/z-index already. */
+  #gameHost > *:not(#gameBackdrop):not(.driveHud):not(.driveOverlay) { position: relative; z-index: 1; }
   body.theme-polycade #gameBackdrop .bg-emoji { filter: blur(50px) saturate(1.6) brightness(0.45) hue-rotate(-6deg); }
 
   .backBtn { background: var(--panel); border: 1px solid var(--panel-border); color: var(--text-hi); border-radius: 12px; padding: 10px 20px; font-size: 15px; font-weight: 700; }
@@ -96,6 +102,7 @@
 
   /* Driving game HUD */
   #gameHost #driveCanvas { width: 100%; height: 100%; max-width: none; max-height: none; display: block; }
+  #gameHost #tetrisCanvas { width: 100%; height: 100%; max-width: none; max-height: none; display: block; }
   .driveHud { position: absolute; inset: 0; pointer-events: none; z-index: 2; font-weight: 800; color: #fff; text-shadow: 0 2px 6px rgba(0,0,0,0.7); }
   .driveTop { position: absolute; top: 16px; left: 16px; right: 16px; display: flex; justify-content: space-between; align-items: flex-start; }
   .driveTop .msg { text-align: center; flex: 1; font-size: clamp(16px, 2vw, 26px); letter-spacing: 0.04em; }
@@ -419,6 +426,7 @@
     { id: 'whack', emoji: '🔨', name: 'Whack-a-Mole', sub: '1 Player' },
     { id: 'drive', emoji: '🏎️', name: 'Afterglow Chase', sub: '1 Player · Open World' },
     { id: 'simon', emoji: '🔴🟦🟡🟢', name: 'Color Memory', sub: '1 Player · Repeat the pattern' },
+    { id: 'tetris', emoji: '🧱', name: 'Offline Tetris', sub: '1 Player · No connection needed' },
   ];
 
   var builtinGrid = document.getElementById('builtinGrid');
@@ -564,6 +572,7 @@
     if (id === 'whack') activeCleanup = mountWhack(gameHost);
     if (id === 'drive') activeCleanup = mountDrive(gameHost);
     if (id === 'simon') activeCleanup = mountSimon(gameHost);
+    if (id === 'tetris') activeCleanup = mountTetris(gameHost);
   }
 
   // ---------- Tic-Tac-Toe ----------
@@ -1154,6 +1163,308 @@
         var mm = Math.floor(elapsed / 60), ss = Math.floor(elapsed % 60);
         msgEl.textContent = (mm < 10 ? '0' : '') + mm + ':' + (ss < 10 ? '0' : '') + ss;
         if (elapsed >= ESCAPE_TIME) end(true);
+      }
+      draw();
+      raf = requestAnimationFrame(loop);
+    }
+    raf = requestAnimationFrame(loop);
+
+    return function cleanup() {
+      running = false;
+      gameInputActive = false;
+      if (raf) cancelAnimationFrame(raf);
+      document.removeEventListener('keydown', onKeyDown);
+      document.removeEventListener('keyup', onKeyUp);
+      window.removeEventListener('resize', resize);
+    };
+  }
+
+  // ---------- Offline Tetris ----------
+  // Standard 7-piece bag, generic matrix rotation (no hand-typed per-piece
+  // rotation tables to get subtly wrong), ghost piece, next-piece preview,
+  // line clears with level/speed scaling. Fully playable offline — no
+  // network calls, matching the rest of this app.
+  function mountTetris(host) {
+    var COLS = 10, ROWS = 20;
+    var SHAPES = {
+      I: { size: 4, color: '#4facfe', cells: [[0, 1], [1, 1], [2, 1], [3, 1]] },
+      O: { size: 2, color: '#facc15', cells: [[0, 0], [1, 0], [0, 1], [1, 1]] },
+      T: { size: 3, color: '#a855f7', cells: [[1, 0], [0, 1], [1, 1], [2, 1]] },
+      S: { size: 3, color: '#22c55e', cells: [[1, 0], [2, 0], [0, 1], [1, 1]] },
+      Z: { size: 3, color: '#ff3d3d', cells: [[0, 0], [1, 0], [1, 1], [2, 1]] },
+      J: { size: 3, color: '#4061ff', cells: [[0, 0], [0, 1], [1, 1], [2, 1]] },
+      L: { size: 3, color: '#ff9f43', cells: [[2, 0], [0, 1], [1, 1], [2, 1]] },
+    };
+    function rotateCells(cells, size) {
+      return cells.map(function (c) { return [size - 1 - c[1], c[0]]; });
+    }
+
+    var canvas = document.createElement('canvas');
+    canvas.id = 'tetrisCanvas';
+    host.appendChild(canvas);
+    var ctx = canvas.getContext('2d');
+
+    var hud = document.createElement('div');
+    hud.className = 'driveHud';
+    hud.innerHTML =
+      '<div class="driveTop">' +
+        '<div class="driveMeter"><div class="label">SCORE</div><div id="tetrisScore" style="font-size:clamp(16px,2vw,24px);">0</div></div>' +
+        '<div class="msg" id="tetrisLevel">LEVEL 1</div>' +
+        '<div class="driveMeter"><div class="label" style="text-align:right;">LINES</div><div id="tetrisLines" style="font-size:clamp(16px,2vw,24px);text-align:right;">0</div></div>' +
+      '</div>' +
+      '<div class="driveBottom">Arrows / WASD Move &amp; Rotate &nbsp;·&nbsp; Space Hard Drop &nbsp;·&nbsp; Esc Exit</div>';
+    host.appendChild(hud);
+
+    var overlay = document.createElement('div');
+    overlay.className = 'driveOverlay';
+    overlay.innerHTML =
+      '<h2>🧱 OFFLINE TETRIS</h2>' +
+      '<p>Clear horizontal lines to score. Speed climbs every 10 lines. Fully offline — no connection needed.</p>' +
+      '<button class="primaryBtn" id="tetrisStartBtn">START</button>';
+    host.appendChild(overlay);
+
+    var scoreEl = hud.querySelector('#tetrisScore');
+    var levelEl = hud.querySelector('#tetrisLevel');
+    var linesEl = hud.querySelector('#tetrisLines');
+    var startBtn = overlay.querySelector('#tetrisStartBtn');
+    setFocusList([startBtn]);
+
+    var keys = {};
+    function onKeyDown(e) {
+      var k = e.key;
+      if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', ' '].indexOf(k) !== -1) e.preventDefault();
+      if (!running) return;
+      if (k === 'ArrowLeft' || k === 'a' || k === 'A') tryMove(-1, 0);
+      else if (k === 'ArrowRight' || k === 'd' || k === 'D') tryMove(1, 0);
+      else if (k === 'ArrowDown' || k === 's' || k === 'S') { if (tryMove(0, 1)) score += 1; }
+      else if (k === 'ArrowUp' || k === 'w' || k === 'W') rotate();
+      else if (k === ' ') hardDrop();
+      keys[k] = true;
+    }
+    function onKeyUp(e) { keys[e.key] = false; }
+    document.addEventListener('keydown', onKeyDown);
+    document.addEventListener('keyup', onKeyUp);
+
+    // best-effort gamepad: edge-triggered moves/rotate/drop, polled each frame
+    var gpPrev = {};
+    function pollGamepadOnce() {
+      var pads = navigator.getGamepads ? navigator.getGamepads() : [];
+      for (var i = 0; i < pads.length; i++) {
+        var pad = pads[i]; if (!pad) continue;
+        var left = pad.axes[0] < -0.5 || (pad.buttons[14] && pad.buttons[14].pressed);
+        var right = pad.axes[0] > 0.5 || (pad.buttons[15] && pad.buttons[15].pressed);
+        var down = pad.axes[1] > 0.5 || (pad.buttons[13] && pad.buttons[13].pressed);
+        var rotateBtn = pad.buttons[0] && pad.buttons[0].pressed;
+        var dropBtn = pad.buttons[3] && pad.buttons[3].pressed; // Y/triangle — not the global "B" back/exit button
+        if (left && !gpPrev.left) tryMove(-1, 0);
+        if (right && !gpPrev.right) tryMove(1, 0);
+        if (down && !gpPrev.down) { if (tryMove(0, 1)) score += 1; }
+        if (rotateBtn && !gpPrev.rotate) rotate();
+        if (dropBtn && !gpPrev.drop) hardDrop();
+        gpPrev = { left: left, right: right, down: down, rotate: rotateBtn, drop: dropBtn };
+      }
+    }
+
+    function resize() { canvas.width = host.clientWidth; canvas.height = host.clientHeight; }
+    resize();
+    window.addEventListener('resize', resize);
+
+    var board, piece, nextType, bag, score, lines, level, dropInterval, dropAcc, running, over, lastT, raf;
+
+    function freshBoard() {
+      var b = [];
+      for (var r = 0; r < ROWS; r++) b.push(new Array(COLS).fill(null));
+      return b;
+    }
+
+    function drawBag() {
+      if (!bag || !bag.length) bag = shuffle(['I', 'O', 'T', 'S', 'Z', 'J', 'L']);
+      return bag.pop();
+    }
+    function shuffle(arr) {
+      for (var i = arr.length - 1; i > 0; i--) { var j = Math.floor(Math.random() * (i + 1)); var t = arr[i]; arr[i] = arr[j]; arr[j] = t; }
+      return arr;
+    }
+
+    function spawn(type) {
+      var def = SHAPES[type];
+      return { type: type, size: def.size, color: def.color, cells: def.cells.slice(), x: Math.floor((COLS - def.size) / 2), y: -1 };
+    }
+
+    function collides(p, dx, dy, cells) {
+      var cs = cells || p.cells;
+      for (var i = 0; i < cs.length; i++) {
+        var gx = p.x + cs[i][0] + dx, gy = p.y + cs[i][1] + dy;
+        if (gx < 0 || gx >= COLS || gy >= ROWS) return true;
+        if (gy >= 0 && board[gy][gx]) return true;
+      }
+      return false;
+    }
+
+    function tryMove(dx, dy) {
+      if (!piece || collides(piece, dx, dy)) return false;
+      piece.x += dx; piece.y += dy;
+      return true;
+    }
+
+    function rotate() {
+      if (!piece) return;
+      var rotated = rotateCells(piece.cells, piece.size);
+      var kicks = [0, -1, 1, -2, 2];
+      for (var i = 0; i < kicks.length; i++) {
+        if (!collides(piece, kicks[i], 0, rotated)) { piece.x += kicks[i]; piece.cells = rotated; return; }
+      }
+    }
+
+    function ghostY() {
+      var dy = 0;
+      while (!collides(piece, 0, dy + 1)) dy++;
+      return piece.y + dy;
+    }
+
+    function hardDrop() {
+      if (!piece) return;
+      var gy = ghostY();
+      score += (gy - piece.y) * 2;
+      piece.y = gy;
+      lockPiece();
+    }
+
+    function lockPiece() {
+      piece.cells.forEach(function (c) {
+        var gx = piece.x + c[0], gy = piece.y + c[1];
+        if (gy >= 0) board[gy][gx] = piece.color;
+      });
+      clearLines();
+      piece = spawn(nextType);
+      nextType = drawBag();
+      if (collides(piece, 0, 0)) endGame();
+    }
+
+    function clearLines() {
+      var cleared = 0;
+      for (var r = ROWS - 1; r >= 0; r--) {
+        if (board[r].every(function (cell) { return cell; })) {
+          board.splice(r, 1);
+          board.unshift(new Array(COLS).fill(null));
+          cleared++; r++;
+        }
+      }
+      if (cleared) {
+        var points = [0, 100, 300, 500, 800][cleared] * level;
+        score += points;
+        lines += cleared;
+        level = Math.floor(lines / 10) + 1;
+        dropInterval = Math.max(90, 1000 - (level - 1) * 80);
+      }
+    }
+
+    function endGame() {
+      running = false; over = true;
+      gameInputActive = false;
+      recordScore('tetris', score);
+      overlay.style.display = 'flex';
+      overlay.innerHTML =
+        '<h2>🧱 GAME OVER</h2>' +
+        '<p>Score ' + score + ' · ' + lines + ' lines · Level ' + level + '</p>' +
+        '<button class="primaryBtn" id="tetrisStartBtn">TRY AGAIN</button>';
+      var retryBtn = overlay.querySelector('#tetrisStartBtn');
+      retryBtn.addEventListener('click', start);
+      setFocusList([retryBtn]);
+    }
+
+    function start() {
+      overlay.style.display = 'none';
+      board = freshBoard();
+      bag = [];
+      nextType = drawBag();
+      piece = spawn(drawBag());
+      score = 0; lines = 0; level = 1; dropInterval = 1000; dropAcc = 0;
+      running = true; over = false; gameInputActive = true;
+      lastT = null;
+      if (!raf) raf = requestAnimationFrame(loop);
+    }
+    startBtn.addEventListener('click', start);
+
+    function cellRect(gx, gy, cs, bx, by) { return [bx + gx * cs, by + gy * cs, cs, cs]; }
+
+    function drawCell(x, y, w, h, color, ghost) {
+      ctx.save();
+      if (ghost) {
+        ctx.strokeStyle = color; ctx.globalAlpha = 0.5; ctx.lineWidth = 2;
+        ctx.strokeRect(x + 2, y + 2, w - 4, h - 4);
+      } else {
+        var g = ctx.createLinearGradient(x, y, x + w, y + h);
+        g.addColorStop(0, color); g.addColorStop(1, 'rgba(0,0,0,0.35)');
+        ctx.fillStyle = g;
+        ctx.fillRect(x + 1, y + 1, w - 2, h - 2);
+        ctx.strokeStyle = 'rgba(255,255,255,0.25)'; ctx.lineWidth = 1;
+        ctx.strokeRect(x + 1.5, y + 1.5, w - 3, h - 3);
+      }
+      ctx.restore();
+    }
+
+    function draw() {
+      var w = canvas.width, h = canvas.height;
+      ctx.fillStyle = '#15161f';
+      ctx.fillRect(0, 0, w, h);
+
+      var cs = Math.max(10, Math.floor(Math.min((w * 0.56) / COLS, (h * 0.92) / ROWS)));
+      var bw = cs * COLS, bh = cs * ROWS;
+      var bx = (w - bw) / 2 - 70, by = (h - bh) / 2;
+
+      ctx.fillStyle = 'rgba(255,255,255,0.04)';
+      ctx.fillRect(bx, by, bw, bh);
+      ctx.strokeStyle = 'rgba(255,255,255,0.1)';
+      for (var c = 0; c <= COLS; c++) { ctx.beginPath(); ctx.moveTo(bx + c * cs, by); ctx.lineTo(bx + c * cs, by + bh); ctx.stroke(); }
+      for (var r = 0; r <= ROWS; r++) { ctx.beginPath(); ctx.moveTo(bx, by + r * cs); ctx.lineTo(bx + bw, by + r * cs); ctx.stroke(); }
+
+      if (board) {
+        for (var ry = 0; ry < ROWS; ry++) {
+          for (var rx = 0; rx < COLS; rx++) {
+            if (board[ry][rx]) { var rect = cellRect(rx, ry, cs, bx, by); drawCell(rect[0], rect[1], rect[2], rect[3], board[ry][rx]); }
+          }
+        }
+      }
+
+      if (piece) {
+        var gy = ghostY();
+        piece.cells.forEach(function (cell) {
+          var rect = cellRect(piece.x + cell[0], gy + cell[1], cs, bx, by);
+          if (gy + cell[1] >= 0) drawCell(rect[0], rect[1], rect[2], rect[3], piece.color, true);
+        });
+        piece.cells.forEach(function (cell) {
+          var rect = cellRect(piece.x + cell[0], piece.y + cell[1], cs, bx, by);
+          if (piece.y + cell[1] >= 0) drawCell(rect[0], rect[1], rect[2], rect[3], piece.color);
+        });
+      }
+
+      // next-piece preview
+      if (nextType) {
+        var nx = bx + bw + 24, ny = by + 10, pcs = Math.max(10, cs * 0.7);
+        ctx.fillStyle = 'rgba(255,255,255,0.7)'; ctx.font = '700 13px sans-serif'; ctx.fillText('NEXT', nx, ny - 4);
+        ctx.fillStyle = 'rgba(255,255,255,0.05)'; ctx.fillRect(nx, ny, pcs * 4, pcs * 4);
+        SHAPES[nextType].cells.forEach(function (cell) {
+          drawCell(nx + cell[0] * pcs, ny + cell[1] * pcs, pcs, pcs, SHAPES[nextType].color);
+        });
+      }
+    }
+
+    function loop(t) {
+      if (!lastT) lastT = t;
+      var dt = Math.min(0.05, (t - lastT) / 1000);
+      lastT = t;
+      if (running) {
+        pollGamepadOnce();
+        dropAcc += dt * 1000;
+        var interval = keys['ArrowDown'] || keys['s'] || keys['S'] ? Math.min(60, dropInterval) : dropInterval;
+        if (dropAcc >= interval) {
+          dropAcc = 0;
+          if (!tryMove(0, 1)) lockPiece();
+        }
+        scoreEl.textContent = score;
+        levelEl.textContent = 'LEVEL ' + level;
+        linesEl.textContent = lines;
       }
       draw();
       raf = requestAnimationFrame(loop);
